@@ -13,7 +13,6 @@ pub use discovery::AutonomousDiscovery;
 use crate::hardware::SiliconTruth;
 use crate::models::fetch::ModelDownloader;
 pub use cluaiz_shared::{KernelSignature, StructuralDNA};
-use reqwest;
 
 // ─── Installation JSON Schema ──────────────────────────────────────────────
 
@@ -178,35 +177,13 @@ pub struct ModelRecommendation {
 
 pub struct CoreRoster;
 
-pub const REGISTRY_URL: &str = "https://cdn.jsdelivr.net/gh/cluaiz/cluaiz@main/models/library/registry.json";
+pub const REGISTRY_URL: &str = "https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/model-registry";
 
 impl CoreRoster {
-    /// 🌐 Fetches an external models.json registry from a URL (Default: jsDelivr).
-    pub async fn fetch_external_registry(url: Option<&str>) -> Result<Vec<ModelManifest>, String> {
-        let fetch_url = url.unwrap_or(REGISTRY_URL);
-        let client = reqwest::Client::builder()
-            .user_agent("Cluaiz/1.0")
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let response = client.get(fetch_url).send().await.map_err(|e| e.to_string())?;
-        if !response.status().is_success() {
-            return Err(format!("Registry fetch failed: HTTP {}", response.status()));
-        }
-
-        let json_val: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-        let manifests = Vec::new();
-
-        if let Some(routing) = json_val.get("routing").and_then(|r| r.as_object()) {
-            for (_id, _path) in routing {
-                // For the index, we might just return empty manifests or placeholders
-                // but ideally, the remote should also point to the full JSONs.
-                // For now, let's just parse what we can.
-            }
-        }
-        
-        Ok(manifests)
+    /// Returns the bundled, version-controlled CPU registry. The previous
+    /// implementation downloaded an index and then discarded every entry.
+    pub async fn fetch_external_registry(_url: Option<&str>) -> Result<Vec<ModelManifest>, String> {
+        Ok(Self::load_roster())
     }
 
     /// Scans the local Cluaiz Library recursively and merges with the Sovereign Registry.
@@ -232,19 +209,21 @@ impl CoreRoster {
 
         // 2. Load Cluaiz Library (The Sovereign Source)
         let mut templates = Vec::new();
+        let workspace_registry = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("model-registry");
         let search_paths = vec![
-            "models/library",
-            "../models/library",
-            "../../models/library",
-            "Cluaiz-engine/models/library",
-            "../Cluaiz-engine/models/library"
+            workspace_registry,
+            std::path::PathBuf::from("model-registry"),
+            std::path::PathBuf::from("models/library"),
+            std::path::PathBuf::from("../models/library"),
+            std::path::PathBuf::from("../../models/library"),
         ];
         
         let mut base_dir = None;
-        for p in search_paths {
-            let candidate = std::path::PathBuf::from(p);
+        for candidate in search_paths {
             if candidate.exists() && candidate.is_dir() { 
-                info!("📚 [Roster] Library source found at: {}", p);
+                info!("📚 [Roster] Library source found at: {}", candidate.display());
                 base_dir = Some(candidate); 
                 break; 
             }
@@ -338,10 +317,18 @@ impl CoreRoster {
                     
                     if let Some(variants) = model_obj.get("variants").and_then(|v| v.as_object()) {
                         for (format_key, format_val) in variants {
+                            // 1BitShit CPU ships a GGUF/BitNet catalog. AWQ,
+                            // ONNX and GPU-specific formats do not belong here.
+                            if format_key != "gguf" && format_key != "bitnet" {
+                                continue;
+                            }
                             if let Some(quants) = format_val.as_object() {
                                 for (quant_key, quant_val) in quants {
                                     if let Some(q_obj) = quant_val.as_object() {
                                         let download_url = q_obj.get("download_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                        if download_url.is_empty() {
+                                            continue;
+                                        }
                                         let ram_required_gb = q_obj.get("ram_required_gb").and_then(|v| {
                                             if v.is_f64() { v.as_f64() } else if v.is_i64() { Some(v.as_i64().unwrap() as f64) } else { None }
                                         }).unwrap_or(0.0);
@@ -364,14 +351,19 @@ impl CoreRoster {
                                             "Text".to_string()
                                         };
 
+                                        let low_bit = architecture.to_ascii_lowercase().contains("bitnet")
+                                            || quant_key.to_ascii_lowercase().contains("ternary")
+                                            || quant_key.to_ascii_lowercase().contains("i2_s")
+                                            || quant_key.to_ascii_lowercase().contains("tq");
+
                                         let m = ModelManifest {
                                             id: full_id,
                                             name: name.clone(),
                                             architecture: architecture.clone(),
-                                            architecture_type: arch_type.to_string(),
+                                            architecture_type: if low_bit { "bitnet".to_string() } else { arch_type.to_string() },
                                             parameters: "".to_string(), // can be deduced if needed
                                             training_tokens: "".to_string(),
-                                            bit_depth: 4.0, // default approximation
+                                            bit_depth: if low_bit { 1.58 } else { 4.0 },
                                             ram_required_gb,
                                             download_size_gb,
                                             huggingface_repo: "".to_string(),
