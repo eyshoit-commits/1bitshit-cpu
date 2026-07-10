@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvironmentMode {
@@ -16,10 +16,9 @@ pub struct EnvironmentManager {
 }
 
 impl EnvironmentManager {
-    /// Returns the current global environment manager, dynamically resolving the correct
-    /// 1BitShit root directory based on the execution context.
+    /// Resolve the active 1BitShit environment without silently falling back to
+    /// the retired `.cluaiz` runtime tree.
     pub fn current() -> Self {
-        // 1. Portable Mode: Ignore OS HOME if portable.flag exists next to the exe
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(parent) = exe_path.parent() {
                 if parent.join("portable.flag").exists() {
@@ -32,34 +31,26 @@ impl EnvironmentManager {
             }
         }
 
-        // 2. Environment override. New names take precedence while the legacy
-        // variable remains supported for existing installations.
-        let configured_root = std::env::var("BITSHIT_HOME")
+        if let Ok(env_path) = std::env::var("BITSHIT_HOME")
             .or_else(|_| std::env::var("BITSHIT_ROOT"))
-            .or_else(|_| std::env::var("cluaiz_HOME"));
-
-        if let Ok(env_path) = configured_root {
+        {
+            let root = PathBuf::from(env_path);
             return Self {
                 mode: EnvironmentMode::Installed,
-                local_dir: PathBuf::from(&env_path),
-                global_dir: PathBuf::from(&env_path),
+                local_dir: root.clone(),
+                global_dir: root,
             };
         }
 
-        // 3. Development Mode
-        // We detect if we're running via cargo
-        if std::env::var("CARGO").is_ok() || std::env::var("CARGO_MANIFEST_DIR").is_ok() {
-            let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        if Self::is_local_workspace_binary(&current_dir) {
             return Self {
                 mode: EnvironmentMode::Development,
                 local_dir: current_dir.join(".1bitshit"),
-                global_dir: Self::installed_root(&home_dir),
+                global_dir: current_dir,
             };
         }
 
-        // 4. Installed Mode (Default)
-        // Check dirs package for home directory
         let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let global_path = Self::installed_root(&home_dir);
         Self {
@@ -69,193 +60,168 @@ impl EnvironmentManager {
         }
     }
 
-    /// Prefer the rebranded directory, but keep an existing Cluaiz installation
-    /// usable until an explicit, versioned data migration is available.
-    fn installed_root(home_dir: &std::path::Path) -> PathBuf {
-        let current = home_dir.join(".1bitshit");
-        let legacy = home_dir.join(".cluaiz");
+    fn is_local_workspace_binary(current_dir: &Path) -> bool {
+        std::env::current_exe()
+            .ok()
+            .map(|exe| exe.starts_with(current_dir.join("target")))
+            .unwrap_or(false)
+            || std::env::var("CARGO").is_ok()
+            || std::env::var("CARGO_MANIFEST_DIR").is_ok()
+    }
 
-        if current.exists() || !legacy.exists() {
-            current
-        } else {
-            legacy
-        }
+    fn installed_root(home_dir: &Path) -> PathBuf {
+        home_dir.join(".1bitshit")
     }
 
     pub fn engine_dir(&self) -> PathBuf {
         self.local_dir.join("engine")
     }
+
     pub fn kernel_dir(&self) -> PathBuf {
         self.engine_dir()
     }
+
     pub fn drivers_dir(&self) -> PathBuf {
         self.engine_dir().join("drivers")
     }
+
     pub fn config_dir(&self) -> PathBuf {
         self.engine_dir().join("config")
     }
+
     pub fn models_dir(&self) -> PathBuf {
+        if let Some(path) = std::env::var_os("BITSHIT_MODELS_DIR") {
+            return PathBuf::from(path);
+        }
+
+        if self.mode == EnvironmentMode::Development {
+            return self.global_dir.join("models");
+        }
+
         self.global_dir.join("models")
     }
+
     pub fn chat_models_dir(&self) -> PathBuf {
         self.models_dir().join("chat")
     }
+
     pub fn embedding_models_dir(&self) -> PathBuf {
         self.models_dir().join("embedding")
     }
+
     pub fn vision_models_dir(&self) -> PathBuf {
         self.models_dir().join("vision")
     }
+
     pub fn kv_cache_dir(&self) -> PathBuf {
         self.local_dir.join("kv_cache")
     }
+
     pub fn skills_dir(&self) -> PathBuf {
         self.global_dir.join("skills")
     }
+
     pub fn extensions_dir(&self) -> PathBuf {
         self.global_dir.join("extensions")
     }
+
     pub fn plugins_dir(&self) -> PathBuf {
         self.global_dir.join("plugins")
     }
+
     pub fn mcp_dir(&self) -> PathBuf {
         self.global_dir.join("mcp")
     }
+
     pub fn reports_dir(&self) -> PathBuf {
         self.local_dir.join("reports")
     }
 
+    fn ensure_dir(path: PathBuf) -> std::io::Result<PathBuf> {
+        std::fs::create_dir_all(&path)?;
+        Ok(path)
+    }
+
     pub fn ensure_kv_cache_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.kv_cache_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.kv_cache_dir())
     }
 
     pub fn ensure_engine_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.engine_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.engine_dir())
     }
 
     pub fn ensure_kernel_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.kernel_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.kernel_dir())
     }
 
     pub fn ensure_drivers_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.drivers_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.drivers_dir())
     }
 
     pub fn ensure_config_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.config_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        
-        // GAP C FIX: Legacy Config Migration Block
+        let dir = Self::ensure_dir(self.config_dir())?;
         let engine_dir = self.engine_dir();
-        let legacy_files = vec![
-            "Permission.json", "Permission.bin", 
-            "system_control.json", "system_control.bin",
-            "package.json", "package.bin"
+        let legacy_files = [
+            "Permission.json",
+            "Permission.bin",
+            "system_control.json",
+            "system_control.bin",
+            "package.json",
+            "package.bin",
         ];
-        
+
         for file in legacy_files {
             let legacy_path = engine_dir.join(file);
             let new_path = dir.join(file);
             if legacy_path.exists() {
                 if !new_path.exists() {
-                    if let Err(e) = std::fs::copy(&legacy_path, &new_path) {
-                        tracing::warn!("⚠️ Failed to migrate legacy config {}: {}", file, e);
+                    if let Err(error) = std::fs::copy(&legacy_path, &new_path) {
+                        tracing::warn!(
+                            "Failed to migrate legacy config {}: {}",
+                            file,
+                            error
+                        );
                     } else {
                         let _ = std::fs::remove_file(&legacy_path);
-                        tracing::info!("✅ Migrated legacy config {} to {:?}", file, new_path);
                     }
                 } else {
-                    // New path already exists, just clean up the legacy zombie file
                     let _ = std::fs::remove_file(&legacy_path);
-                    tracing::info!("🧹 Cleaned up legacy zombie config {}", file);
                 }
             }
         }
-        
+
         Ok(dir)
     }
 
     pub fn ensure_models_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.models_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.models_dir())
     }
 
     pub fn ensure_chat_models_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.chat_models_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.chat_models_dir())
     }
 
     pub fn ensure_embedding_models_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.embedding_models_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.embedding_models_dir())
     }
 
     pub fn ensure_vision_models_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.vision_models_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.vision_models_dir())
     }
 
-
-
     pub fn ensure_skills_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.skills_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.skills_dir())
     }
 
     pub fn ensure_extensions_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.extensions_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.extensions_dir())
     }
 
     pub fn ensure_plugins_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.plugins_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.plugins_dir())
     }
 
     pub fn ensure_mcp_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.mcp_dir();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)?;
-        }
-        Ok(dir)
+        Self::ensure_dir(self.mcp_dir())
     }
 }
