@@ -12,6 +12,39 @@ use crate::core::dashboard::DashboardEngine;
 use crate::core::flow::FlowEngine;
 use colored::Colorize;
 
+const RUNTIME_VERSION: &str = "v0.2.0-dev";
+
+fn is_valid_boot_model(model: &engines::models::registry::ModelRecommendation) -> bool {
+    let id = model.manifest.id.trim();
+    let filename = model.manifest.huggingface_filename.trim();
+    let local_path = model.manifest.local_path.as_deref().unwrap_or("").trim();
+
+    model.is_cached
+        && !id.is_empty()
+        && !id.eq_ignore_ascii_case("unknown")
+        && !filename.is_empty()
+        && !filename.eq_ignore_ascii_case("unknown")
+        && !local_path.is_empty()
+        && std::path::Path::new(local_path).is_file()
+}
+
+fn print_runtime_banner() {
+    let banner = r#"
+  ██╗██████╗ ██╗████████╗███████╗██╗  ██╗██╗████████╗
+  ██║██╔══██╗██║╚══██╔══╝██╔════╝██║  ██║██║╚══██╔══╝
+  ██║██████╔╝██║   ██║   ███████╗███████║██║   ██║
+  ██║██╔══██╗██║   ██║   ╚════██║██╔══██║██║   ██║
+  ██║██████╔╝██║   ██║   ███████║██║  ██║██║   ██║
+  ╚═╝╚═════╝ ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝
+
+               CPU NEURAL RUNTIME
+"#;
+
+    for line in banner.lines() {
+        println!("{}", line.cyan().bold());
+    }
+}
+
 pub struct App {
     pub state: AppState,
     pub tab: crate::app_enums::Tab,
@@ -76,9 +109,10 @@ impl App {
                             self.state.auto_mount_triggered = true;
                             // Skip loading model locally since we are using background API
                         } else {
-                            // 🔍 Auto-Selection: Pick first available model if none active
+                            // Select only a fully resolved, existing local model. A stale cache
+                            // entry must never become `unknown:gguf:unknown` and reach the kernel.
                             if self.state._active_model_id.is_none() {
-                                if let Some(model) = self.state.sorted_models.iter().find(|m| m.is_cached) {
+                                if let Some(model) = self.state.sorted_models.iter().find(|m| is_valid_boot_model(m)) {
                                     self.state._active_model_id = Some(model.manifest.id.clone());
                                 }
                             }
@@ -86,19 +120,35 @@ impl App {
                             let perms = engines::neural_foundry::security::permission_schema::PermissionSchema::load();
                             if !perms.lazy_load_model {
                                 if let Some(active_id) = &self.state._active_model_id {
-                                    if let Some(model) = self.state.sorted_models.iter().find(|m| &m.manifest.id == active_id) {
+                                    if let Some(model) = self.state.sorted_models.iter().find(|m| {
+                                        &m.manifest.id == active_id && is_valid_boot_model(m)
+                                    }) {
                                         if let Some(local_path) = engines::models::fetch::ModelDownloader::get_cached_path(
                                             &model.manifest.category,
                                             &model.manifest.id,
                                             &model.manifest.huggingface_filename
-                                        ) {
+                                        ).filter(|path| path.is_file()) {
                                             self.state.auto_mount_triggered = true;
                                             let engine = self.state.Core_engine.clone();
-                                            println!("  {} Mounting auto-selected model: {}", "⚙️".yellow(), model.manifest.name);
+                                            println!("  {} Mounting validated CPU model: {}", "⚙️".yellow(), model.manifest.name);
                                             tokio::spawn(async move {
-                                                let _ = engine.load_model(local_path).await;
+                                                if let Err(error) = engine.load_model(local_path).await {
+                                                    eprintln!("  {} Auto-Pilot model load failed: {}", "❌".red(), error);
+                                                }
                                             });
+                                        } else {
+                                            self.state._active_model_id = None;
+                                            println!(
+                                                "  {} Cached model metadata is stale. Select a valid local model with '@'.",
+                                                "⚠️".yellow()
+                                            );
                                         }
+                                    } else {
+                                        self.state._active_model_id = None;
+                                        println!(
+                                            "  {} Active model is incomplete or missing on disk. Select a model with '@'.",
+                                            "⚠️".yellow()
+                                        );
                                     }
                                 }
                             }
@@ -110,13 +160,13 @@ impl App {
                         let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
                         let _ = crossterm::terminal::disable_raw_mode();
                         print!("\x1B[2J\x1B[1;1H"); // Clear and home
-                        crate::assets::logos::logo::print_native_logo(self.state.logo_index);
+                        print_runtime_banner();
                         println!();
-                        println!("  {} {}", "cluaiz".cyan().bold(), "v0.1.0".bright_black());
+                        println!("  {} {}", "1BitShit CPU".cyan().bold(), RUNTIME_VERSION.bright_black());
                         if self.state.is_client_mode {
                             println!("  {} {}", "Mode:        ".dimmed(), "Pure Client (Connected to Background API)".green().bold());
                         } else {
-                            println!("  {} {}", "Mode:        ".dimmed(), "Standalone (Local Engine)".yellow().bold());
+                            println!("  {} {}", "Mode:        ".dimmed(), "Standalone CPU Engine".yellow().bold());
                         }
                         self.state.printed_logo = true;
                     }
@@ -132,5 +182,4 @@ impl App {
         }
         Ok(())
     }
-
 }
