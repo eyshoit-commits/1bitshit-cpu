@@ -1,0 +1,168 @@
+================================================================================
+                    CLUAIZ SOURCE-AVAILABLE LICENSE (CSL)
+                                 Version 1.0
+================================================================================
+
+            👉 QUICK SUMMARY (HUMAN-READABLE, NOT A LEGAL SUBSTITUTE)
+
+  FREE FOR:
+  ✅ Personal & Hobbyist use
+  ✅ Startups (Pre-scale companies with Annual Gross Revenue below $10M USD)
+  ✅ Academic & Scientific Research
+  ✅ Local deployments and self-hosting
+
+  COMMERCIAL LICENSE REQUIRED FOR:
+  ❌ Large Enterprises (Annual Gross Revenue above $10M USD)
+  ❌ Hosting competing SaaS, cloud utilities, or managed API offerings
+  ❌ Commercial redistribution of the core runtime
+
+  "Source-available AI runtime platform. Free for developers, startups, and 
+  research. Commercial licensing available for enterprises and hosted services."
+
+================================================================================
+
+Copyright (c) 2026 Cluaiz Technologies. All Rights Reserved.
+
+--------------------------------------------------------------------------------
+1. PREAMBLE
+--------------------------------------------------------------------------------
+The Cluaiz Source-Available License (CSL) is designed to cultivate a high-performance,
+collaborative ecosystem. By making our source code visible and adaptable, we empower
+individual developers, startups, researchers, and hobbyists to build freely. At the 
+same time, this license requires fair commercial participation from large-scale 
+enterprises and protects the platform from competing hosted clones.
+
+This is a SOURCE-AVAILABLE license. It is NOT an OSI-approved Open Source license.
+It offers a balanced "Open-Core" model: completely free for personal, educational, 
+startup, and local self-hosted use, with commercial licensing required for large 
+enterprises and managed service providers.
+
+--------------------------------------------------------------------------------
+2. DEFINITIONS
+--------------------------------------------------------------------------------
+"Licensed Software" means the source code, build scripts, configuration files, 
+and documentation of the Cluaiz ecosystem made available under this License.
+
+"Enterprise" means any corporate entity, business, or organization (including 
+its parent company, subsidiaries, and controlled affiliates) whose annual gross 
+revenue exceeded Ten Million USD ($10,000,000 USD) in its preceding fiscal year.
+
+"Contributor" means any individual or corporate entity that has authored and 
+had an accepted merged contribution in the official upstream repository of the 
+Licensed Software.
+
+"Competing SaaS / Hosted Service" means any service that provides the core 
+functional features of the Licensed Software as a hosted platform, managed API, 
+managed container, or cloud offering in direct commercial competition with the 
+official cloud services or commercial API endpoints hosted by Cluaiz.
+
+--------------------------------------------------------------------------------
+3. LICENSE GRANTS
+--------------------------------------------------------------------------------
+Subject to the terms and conditions of this License, Cluaiz Technologies hereby 
+grants you a non-exclusive, worldwide, royalty-free, non-transferable license to 
+view, modify, copy, and distribute the Licensed Software under the following tiers:
+
+A. Developer & Startup Tier (Free Use)
+You may use the Licensed Software for personal projects, academic research, 
+education, local evaluation, and within business operations, provided that:
+  (1) You are not an Enterprise (as defined in Section 2).
+  (2) You do not operate a Competing SaaS / Hosted Service (as defined in Section 2).
+
+B. Contributor Commercial Waiver
+In appreciation of community support, any verified Contributor is granted a perpetual, 
+worldwide, royalty-free Commercial License to use, modify, and run the core Licensed 
+Software for commercial operations, fully bypassing the Enterprise revenue threshold, 
+provided that:
+  (1) The Contributor remains in good standing within the community.
+  (2) The Contributor's usage does not involve operating a Competing SaaS / Hosted Service.
+
+--------------------------------------------------------------------------------
+4. ENTERPRISE COMMERCIAL MANDATE
+--------------------------------------------------------------------------------
+If you are an Enterprise, you may evaluate the Licensed Software in a non-production 
+environment for up to thirty (30) days. Continued or production use of the Licensed 
+Software within an Enterprise requires a separate, written Enterprise Commercial Agreement 
+or Strategic Partnership Agreement from Cluaiz Technologies.
+
+--------------------------------------------------------------------------------
+5. PROTECTIVE COVENANTS & RESTRICTIONS
+--------------------------------------------------------------------------------
+A. No Competing Managed Services
+You may not use, package, or distribute the Licensed Software to operate, host, 
+or offer a Competing SaaS / Hosted Service or commercial API clone. Offering Cluaiz 
+as a managed cloud utility requires a specific hosting provider agreement.
+
+B. Trademark Separation
+This License does not grant any rights to use the trademarked names "Cluaiz", 
+"Cluaiz-OS", "Archer", "Antigravity", or any associated official logos. Any 
+redistribution, fork, or derivative work of the Licensed Software must be renamed 
+to a distinct brand that does not imply affiliation with or endorsement by Cluaiz.
+
+--------------------------------------------------------------------------------
+6. TERMINATION
+--------------------------------------------------------------------------------
+This License and the rights granted hereunder will terminate automatically and 
+immediately upon any breach by you of the terms, conditions, or restrictions 
+contained in this Agreement. Upon termination, you must cease all use, distribution, 
+and modification of the Licensed Software and destroy all copies in your possession.
+
+--------------------------------------------------------------------------------
+7. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
+--------------------------------------------------------------------------------
+THE LICENSED SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS 
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS 
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL CLUAIZ TECHNOLOGIES, ITS DIRECTORS, EMPLOYEES, OR THE AUTHORS 
+BE LIABLE FOR ANY CLAIM, DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE 
+GOODS OR SERVICES; LOSS OF USE, DATA, PRODUCTION FAILURES, OR PROFITS; OR BUSINESS 
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, 
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
+8. GOVERNING LAW & JURISDICTION
+--------------------------------------------------------------------------------
+This License shall be governed by, interpreted, and construed in accordance with 
+the laws of India. 
+
+Any dispute, controversy, or claim arising out of or relating to this License, 
+including its formation or breach, shall be settled by binding arbitration in 
+accordance with the Arbitration and Conciliation Act of India, with the seat of 
+arbitration in New Delhi, India. 
+
+While arbitration is the primary dispute resolution mechanism, any final judicial 
+recourse shall lie exclusively within the jurisdiction of the courts in Prayagraj, 
+Uttar Pradesh, India.
+
+================================================================================
+                      FREQUENTLY ASKED QUESTIONS (FAQ)
+================================================================================
+
+Q: Is Cluaiz open-source?
+A: Cluaiz is "source-available" or "open-core". You have complete access to the 
+   source code, and you can compile, modify, and self-host it freely. However, 
+   because we restrict competing hosted services and charge enterprises with 
+   annual revenue above $10M, it does not meet the strict OSI definition of 
+   "open-source".
+
+Q: Can I use Cluaiz commercially?
+A: Yes! If your company's annual revenue is under $10M USD, you can use Cluaiz 
+   commercially for free. If you exceed this threshold, or if you are active contributors 
+   (who get a full waiver), or if you run a competing SaaS, you need a commercial agreement.
+
+Q: Can I fork the repository and make modifications?
+A: Absolutely! You can fork, modify, and distribute your changes under this 
+   same license, provided you remove all official Cluaiz branding, names, 
+   and logos, and do not use the modified version to run a competing SaaS.
+
+Q: Can I build plugins, models, or extensions for Cluaiz?
+A: Yes! We highly encourage the community to build plugins, drivers, and 
+   extensions. These belong entirely to you and can be licensed under any terms 
+   you choose.
+
+Q: Can I self-host Cluaiz on my own infrastructure?
+A: Yes. Local deployment and self-hosting for your internal startup/personal 
+   use are 100% free and fully supported.

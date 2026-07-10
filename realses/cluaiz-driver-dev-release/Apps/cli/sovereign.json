@@ -1,0 +1,14 @@
+{
+  "boost": {
+    "turbo": true,
+    "turboquant": false,
+    "vram_pinning": false,
+    "safety_buffer_pct": 10,
+    "latency_mode": "balanced",
+    "inference_mode": "Auto"
+  },
+  "persistence": {
+    "keep_text_hot": false,
+    "keep_voice_hot": false
+  }
+}

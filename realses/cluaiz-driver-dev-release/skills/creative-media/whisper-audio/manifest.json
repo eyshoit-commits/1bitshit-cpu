@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.media.audio",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Phonetic transcription and audio-to-text processing.",
+    "author":  "Cluaiz OS",
+    "name":  "whisper-audio",
+    "triggers":  {
+                     "semantic":  [
+                                      "whisper-audio",
+                                      "creative-media"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

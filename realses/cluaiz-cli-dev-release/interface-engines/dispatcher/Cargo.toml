@@ -1,0 +1,18 @@
+[package]
+name = "dispatcher-crate"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "dispatcher"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+neural-core = { path = "../neural_core" }
+llama = { path = "../llama" }
+candle = { path = "../candle" }
+system-booster = { path = "../../cluaiz-engine/engines/system-booster" }
+cluaiz-shared = { path = "../../cluaiz-engine/engines/cluaiz-shared" }
+anyhow = "1.0"
+async-trait = "0.1"
+tracing = "0.1"

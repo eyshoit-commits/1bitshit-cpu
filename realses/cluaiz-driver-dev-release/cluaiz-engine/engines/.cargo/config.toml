@@ -1,0 +1,7 @@
+[env]
+CCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING = "1"
+CL = "/Zc:preprocessor"
+CMAKE_MSVC_RUNTIME_LIBRARY = "MultiThreaded"
+
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

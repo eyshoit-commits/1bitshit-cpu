@@ -1,0 +1,42 @@
+[package]
+name = "candle"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+build = "build.rs"
+
+[lib]
+name = "cluaiz_candle"
+crate-type = ["cdylib", "rlib", "staticlib"]
+
+[dependencies]
+# ── Sovereign Foundry: Official HuggingFace Source ──
+candle-core = { git = "https://github.com/huggingface/candle" }
+candle-nn = { git = "https://github.com/huggingface/candle" }
+candle-transformers = { git = "https://github.com/huggingface/candle" }
+
+# ── Sovereign Ecosystem ──
+anyhow = "1.0"
+tracing = "0.1"
+cluaiz-shared = { path = "../../cluaiz-engine/engines/cluaiz-shared" }
+tokenizers = "0.22.2"
+tokio = { version = "1.37", features = ["full"] }
+neural-core = { path = "../neural_core" }
+
+[features]
+# ── Universal Silicon Support ──
+default = []
+
+# Mainstream Backends (Verified)
+cuda = ["candle-core/cuda"]
+metal = ["candle-core/metal"]
+accelerate = ["candle-core/accelerate"]
+mkl = ["candle-core/mkl"]
+
+# Hyper-Silicon (Sovereign DNA Placeholders)
+# Note: Vulkan is currently experimental in Candle, moved to DNA phase.
+vulkan = []    
+openvino = []  
+qnn = []       
+rocm = []      
+sycl = []      

@@ -1,0 +1,17 @@
+{
+  "id": "cluaiz.skill.docker_pilot",
+  "name": "Docker Pilot",
+  "version": "1.0.0",
+  "description": "Native Docker workflow assistant for local container operations.",
+  "triggers": {
+    "semantic": ["docker", "container", "image", "compose"],
+    "entropy_threshold": 0.25
+  },
+  "permissions": {
+    "level": "WorkspaceWrite",
+    "network": false,
+    "filesystem": true
+  },
+  "runtime_mode": "wasm_native",
+  "soul_type": "STEERING_VECTOR"
+}

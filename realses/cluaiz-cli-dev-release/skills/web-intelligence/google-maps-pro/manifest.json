@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.web.maps",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Geospatial reasoning and route optimization.",
+    "author":  "Cluaiz OS",
+    "name":  "google-maps-pro",
+    "triggers":  {
+                     "semantic":  [
+                                      "google-maps-pro",
+                                      "web-intelligence"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

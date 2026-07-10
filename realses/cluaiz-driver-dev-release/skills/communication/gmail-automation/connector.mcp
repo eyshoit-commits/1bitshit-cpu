@@ -1,0 +1,31 @@
+{
+    "mcp_servers": {
+        "gmail": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-google-mail"],
+            "env": {
+                "GMAIL_CLIENT_ID": "YOUR_CLIENT_ID",
+                "GMAIL_CLIENT_SECRET": "YOUR_CLIENT_SECRET"
+            },
+            "description": "Native MCP server for Google Mail automation"
+        }
+    },
+    "tools": [
+        {
+            "name": "send_email",
+            "description": "Send a formal email via Gmail",
+            "parameters": {
+                "to": "string",
+                "subject": "string",
+                "body": "string"
+            }
+        },
+        {
+            "name": "search_emails",
+            "description": "Search for specific emails in the inbox",
+            "parameters": {
+                "query": "string"
+            }
+        }
+    ]
+}

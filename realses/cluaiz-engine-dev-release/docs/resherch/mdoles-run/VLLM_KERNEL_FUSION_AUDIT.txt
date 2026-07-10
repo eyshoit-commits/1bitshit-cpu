@@ -1,0 +1,60 @@
+# 🌊 VLLM KERNEL FUSION & PAGED ATTENTION: ARCHITECTURAL AUDIT
+## 🎯 TARGET: VLLM-MAIN (Triton/CUDA Custom Ops)
+## 📝 RESEARCHER ID: ARCHER-SOVEREIGN-01
+
+### 1. 🧪 PAGED ATTENTION MECHANICS (MEMORY VIRTUALIZATION)
+vLLM solves the "KV-Cache Fragmentation" problem by treating GPU memory like Virtual RAM.
+
+#### 1.1 Logical Block Mapping
+File Trace: `v1/attention/ops/paged_attn.py`
+vLLM doesn't allocate one continuous block for a sequence. It uses **"Blocks"** (typically size 16).
+- **Physical Reality**: `kv_cache` is a tensor of shape `[num_blocks, num_heads, head_size, block_size]`.
+- **Addressing**: A `slot_mapping` tensor maps the logical token index to a physical slot in the block.
+
+**CRITICAL GAP**: Archer allocates the KV-cache per-sequence. This leads to **"OOM Panics"** when handling multiple concurrent users or long contexts, as we cannot reuse fragmented memory.
+
+---
+
+### 2. ⚡ KERNEL FUSION: REDUCING IO OVERHEAD
+The "Truth" about vLLM's speed isn't just Python; it's the **C++ Fusions**.
+
+#### 2.1 Reshape-and-Cache (The Heartbeat)
+Instead of:
+1. `compute_qkv`
+2. `copy_k_to_cache`
+3. `copy_v_to_cache`
+...vLLM does this in a **Single CUDA Dispatch**: `ops.reshape_and_cache`.
+
+#### 2.2 Mathematical Breakdown
+Inside the kernel:
+- It performs **"Online Quantization"** (scales k/v on the fly to FP8/INT8).
+- It writes directly into the paged memory slots using atomic offsets.
+
+**Industrial Truth**: For Archer to hit 50+ TPS, we cannot use standard `candle::Tensor::copy_`. We need a specialized `ArcherKernel::fuse_cache` op.
+
+---
+
+### 3. 🛡️ TENSOR DNA RE-ENGINEERING
+vLLM uses a **"ModelConfig"** that is strictly populated by probing the weights.
+
+| **Feature** | **vLLM Strategy** | **Archer Sovereign Proposal** |
+| :--- | :--- | :--- |
+| **Max Context** | Dynamic Based on VRAM | Pre-calculated in DNA during Indexing |
+| **Quantization** | Auto-detection (FP8/AWQ/GPTQ) | Bit-Depth Identity in Manifest |
+| **Kernel Choice** | Dispatcher based on Capability | Routing logic in NeuralRouter |
+
+---
+
+### 4. 📜 SOVEREIGN RECOMMENDATION
+Archer must implement **"Sovereign Paging"**:
+1.  **BlockAllocator**: A background thread in `archer-shared` that manages physical memory blocks.
+2.  **Fused Loader**: Update `GGUFLoader` to not just load, but **"Interleave"** weights during the IO phase to match the target kernel's layout.
+3.  **DNA Evolution**: `structural_dna.json` must store the `block_size` and `physical_stride` to allow zero-copy inference.
+
+---
+
+## 🏛️ REMAINING RESEARCH TASKS
+- [ ] Audit `BitNet-main` for ternary weight layout (1.58b specificity).
+- [ ] Cross-match `engines copy` hardware benchmarks with vLLM PagedAttention throughput.
+
+**Audit Report 2 Complete.** _Proceeding to BitNet Weight Layout Audit..._

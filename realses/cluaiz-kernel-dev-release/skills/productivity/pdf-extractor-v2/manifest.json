@@ -1,0 +1,28 @@
+{
+    "compatibility": {
+        "min_hidden_dim": 2048,
+        "model_families": [
+            "UNIVERSAL"
+        ]
+    },
+    "permissions": {
+        "filesystem": true,
+        "mcp_servers": [],
+        "level": "ReadOnly",
+        "network": false
+    },
+    "id": "cluaiz.skill.prod.pdf",
+    "soul_type": "KV_CACHE",
+    "version": "1.0.0",
+    "description": "Advanced PDF parsing and OCR structure recovery.",
+    "author": "Cluaiz OS",
+    "name": "pdf-extractor-v2",
+    "triggers": {
+        "semantic": [
+            "pdf-extractor-v2",
+            "productivity"
+        ],
+        "entropy_threshold": 0.7
+    },
+    "checksum": "pending"
+}

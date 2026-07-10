@@ -1,0 +1,34 @@
+{
+    "mcp_servers": {
+        "github": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_TOKEN"
+            },
+            "description": "Native GitHub management server"
+        }
+    },
+    "tools": [
+        {
+            "name": "create_pull_request",
+            "description": "Create a new PR in a repository",
+            "parameters": {
+                "owner": "string",
+                "repo": "string",
+                "title": "string",
+                "head": "string",
+                "base": "string"
+            }
+        },
+        {
+            "name": "get_issue",
+            "description": "Retrieve details of a specific issue",
+            "parameters": {
+                "owner": "string",
+                "repo": "string",
+                "issue_number": "number"
+            }
+        }
+    ]
+}

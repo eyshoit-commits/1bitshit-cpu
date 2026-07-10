@@ -1,0 +1,59 @@
+# CLUAIZ INDUSTRIAL GITIGNORE
+
+# --- Rust Build Artifacts ---
+target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# --- C++ & Kernel Build Artifacts ---
+build/
+**/build/
+*.o
+*.obj
+# *.so  <-- Commented out to allow driver binaries
+# *.dll <-- Commented out to allow driver binaries
+# *.dylib
+*.exe
+*.lib
+*.a
+*.pdb
+
+# --- Local Sovereign Resources (Logic Allowed, Models Blocked) ---
+# brain/storage/  <-- Allowed
+# brain/data/     <-- Allowed
+# storage/        <-- Allowed
+# data/           <-- Allowed
+Apps/app
+
+# --- Large Model Files (STRICTLY BLOCKED) ---
+*.gguf
+*.bin
+*.pt
+*.onnx
+*.weights
+*.ckpt
+# /models/*.json  <-- Block large config JSONs if needed, else remove
+
+# --- Managed Interface Engines (DRIVERS ALLOWED) ---
+# interface-engines/drivers/  <-- Allowed for user downloads
+
+# --- IDE & Environment ---
+.vscode/
+.idea/
+.env
+.env.*
+*.swp
+*.swo
+
+# --- AI & Agent State ---
+.agent/
+.gemini/
+/scratch/
+cluaiz_neural.log
+error_log.txt
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
+desktop.ini

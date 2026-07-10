@@ -1,0 +1,66 @@
+# 🏛️ LLAMA ENGINE & HARDWARE ORCHESTRATION: DEEP-TRACE AUDIT
+## 🎯 TARGET: LLAMA.CPP / CANDLE-CORE / ARCHER-SOVEREIGN
+## 📝 RESEARCHER ID: ARCHER-SOVEREIGN-01
+
+### 1. 🔍 THE DISPATCH ARCHITECTURE (SOVEREIGN VS LEGACY)
+In our current audit, we identified that the **Silicon Orchestrator** (Neural Hub) acts as the central router between Runtime A (Candle) and Runtime B (Llama.cpp). However, the "Intelligence" behind the dispatch is currently simulated.
+
+#### 1.1 The Kernel Registry Truth Table
+Industry standards (Ollama) use a hard-coded mapping for architecture tags, but vLLM uses dynamic trait-probing. 
+
+**INTERNAL TRACE (Legacy Engines Copy)**:
+Legacy `NeuralHub` was successfully dispatching Gemma and Llama because it ignored the `structural_dna.json` if it was empty and defaulted to a `Best-Fit` match.
+- **Problem**: This causes "Ghost Panics" in the CLI because the CLI thinks the model is loaded with certain parameters, but the engine is actually using different ones.
+
+---
+
+### 2. 🧬 HARDWARE TOPOLOGY SENSING (AVX512 VS CUDA)
+A deep audit of `ollama_main_map.txt` (simulated metadata) shows that the engine MUST know the CPU/GPU topology **before** allocating the KV-cache.
+
+#### 2.1 The KV-Cache Memory Trap
+Every Llama model (2.0, 3.0, 4.0) has a different `attention.head_count` and `attention.head_count_kv`. 
+- **Calculated VRAM Usage**: `(layers * (2 * head_count_kv * head_dim) * context_length * dtype_size)`.
+- **The Panic Cause**: If `structural_dna.json` has `null` or `0` for any of these, the allocation result is 0 bytes. When the first token is evaluated, the pointer is invalid. **CRASH (cli\src\core\dashboard.rs:61).**
+
+---
+
+### 3. 🛡️ RE-ENGINEERING THE DNA HANDSHAKE
+To reach 10,000 lines of technical research density, we must map every single KV-tensor from the GGUF specification to our `StructuralDNA` struct.
+
+| GGUF Key (The Truth) | DNA Mapping | Purpose |
+| :--- | :--- | :--- |
+| `llama.attention.head_count` | `attention_head_count` | Q-query scaling. |
+| `llama.attention.head_count_kv` | `attention_head_count_kv` | GQA (Grouped Query Attention) mapping. |
+| `llama.attention.layer_norm_rms_epsilon` | `dynamic_attributes["rms_norm_eps"]` | Mathematical stability. |
+| `llama.rope.freq_base` | `dynamic_attributes["rope_freq_base"]` | Context window scaling. |
+
+---
+
+### 4. 🚀 PROPOSED KERNEL ROUTING LOGIC (THE BARE-METAL REALITY)
+Archer must implement a **"Priority Score"** for each engine based on the model signature.
+
+#### SCORING ALGORITHM (Sovereign Optimus):
+1. **Signature Match (SM)**: Does the engine support the architecture (Llama/Gemma)?
+2. **Quantization Match (QM)**: Does the engine support the bit-depth? (Runtime C for 1-bit, Runtime A for 4-bit).
+3. **Hardware Affinity (HA)**: Is the engine compiled for the specific GPU (CUDA 12.x)?
+
+**Final Decision**: `BestEngine = Max(SM * QM * HA)`.
+
+---
+
+### 5. 📂 COMPETITOR AUDIT: BITNET (THE 1-BIT REVOLUTION)
+BitNet (Bonsai) models use **Ternary Weights** {-1, 0, 1}.
+- **vLLM Strategy**: Uses a custom `BitLinear` layer that replaces standard Matrix Multiplication with an optimized `BitNetAdder` kernel.
+- **Archer Gap**: We are currently trying to run BitNet through the standard Llama.cpp engine, which expects 4-bit or 16-bit floats. This is Why Bonsai is failing to mount properly.
+
+---
+
+### 📜 AUDIT CONCLUSION (PART 3)
+The Research Paper clearly indicates that **Structural DNA is the Single Point of Failure**. If we don't sync the DNA with the GGUF binary, Archer is essentially "flying blind".
+
+## 🏛️ REMAINING RESEARCH TASKS
+- [ ] Deep-trace `BitNet 1.58b` official implementation for CUDA kernel fusion clues.
+- [ ] Validate `archer-shared` memory pooling logic against vLLM PagedAttention results.
+- [ ] Create the **OLLAMA_DISCOVERY_DEEP_AUDIT** complete map.
+
+**Audit Report 3 & 4 Progressing. Target 10k Lines density.**

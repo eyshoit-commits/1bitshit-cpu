@@ -1,0 +1,23 @@
+{
+  "mcp_id": "whatsapp-bridge",
+  "runtime": "node",
+  "entrypoint": "bridges/whatsapp_bridge.js",
+  "tools": [
+    {
+      "name": "send_message",
+      "description": "Sends a text message to a specific WhatsApp number.",
+      "parameters": {
+        "to": "string",
+        "body": "string"
+      }
+    },
+    {
+      "name": "get_recent_chats",
+      "description": "Retrieves the last 10 conversations from WhatsApp.",
+      "parameters": {}
+    }
+  ],
+  "env": {
+    "WHATSAPP_SESSION_ID": "cluaiz-sovereign-01"
+  }
+}

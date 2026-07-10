@@ -1,0 +1,40 @@
+{
+  "version": "0.1.0",
+  "commands": [
+    {
+      "name": "cluaiz",
+      "usage": "cluaiz",
+      "description": "Launch the interactive dashboard (TUI)",
+      "category": "core",
+      "example": "cluaiz"
+    },
+    {
+      "name": "run",
+      "usage": "cluaiz run <model-id>",
+      "description": "Pull & run a model. Downloads if not cached locally.",
+      "category": "models",
+      "example": "cluaiz run bonsai:8b"
+    },
+    {
+      "name": "help",
+      "usage": "cluaiz help",
+      "description": "Show this help screen",
+      "category": "core",
+      "example": "cluaiz help"
+    },
+    {
+      "name": "--calibrate",
+      "usage": "cluaiz --calibrate",
+      "description": "Re-scan hardware and synchronize SiliconTruth profile",
+      "category": "system",
+      "example": "cluaiz --calibrate"
+    },
+    {
+      "name": "--benchmark",
+      "usage": "cluaiz --benchmark",
+      "description": "Run a full hardware performance benchmark",
+      "category": "system",
+      "example": "cluaiz --benchmark"
+    }
+  ]
+}

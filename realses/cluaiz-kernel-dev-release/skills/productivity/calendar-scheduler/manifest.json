@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.prod.calendar",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Time management and automated meeting scheduling.",
+    "author":  "Cluaiz OS",
+    "name":  "calendar-scheduler",
+    "triggers":  {
+                     "semantic":  [
+                                      "calendar-scheduler",
+                                      "productivity"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

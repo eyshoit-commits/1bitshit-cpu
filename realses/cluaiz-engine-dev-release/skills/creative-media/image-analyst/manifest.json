@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.media.image",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Deep visual feature extraction and image understanding.",
+    "author":  "Cluaiz OS",
+    "name":  "image-analyst",
+    "triggers":  {
+                     "semantic":  [
+                                      "image-analyst",
+                                      "creative-media"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

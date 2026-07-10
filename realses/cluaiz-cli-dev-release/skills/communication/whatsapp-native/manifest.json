@@ -1,0 +1,25 @@
+{
+  "id": "whatsapp-native",
+  "name": "WhatsApp Sovereign Messenger",
+  "version": "1.0.0",
+  "author": "Cluaiz-OS Neural Foundry",
+  "description": "Securely sends and receives WhatsApp messages via a local sovereign gateway.",
+  "triggers": {
+    "semantic": [
+      "whatsapp",
+      "send message",
+      "message to",
+      "ping on whatsapp"
+    ],
+    "entropy_threshold": 0.85
+  },
+  "permissions": {
+    "level": "NetworkRestricted",
+    "network": true,
+    "filesystem": false,
+    "mcp_servers": [
+      "whatsapp-bridge"
+    ]
+  },
+  "soul_type": "KV_CACHE"
+}

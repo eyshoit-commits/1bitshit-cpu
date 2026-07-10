@@ -1,0 +1,14 @@
+{
+  "build_status": "success",
+  "generated_at": "2026-05-04T00:00:00Z",
+  "artifacts": {
+    "manifest": "artifacts/manifest.json",
+    "mcp": "artifacts/connector.mcp",
+    "wasm": "artifacts/logic.wasm",
+    "kv_cache": "artifacts/state.kv-cache"
+  },
+  "checksums": {
+    "manifest_sha256": "demo-manifest-sha256",
+    "mcp_sha256": "demo-mcp-sha256"
+  }
+}

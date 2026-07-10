@@ -1,0 +1,11 @@
+{
+  "build_status": "success",
+  "generated_at": "2026-05-04T00:00:00Z",
+  "artifacts": {
+    "manifest": "artifacts/manifest.json",
+    "wasm": "artifacts/logic.wasm"
+  },
+  "checksums": {
+    "manifest_sha256": "demo-manifest-sha256"
+  }
+}

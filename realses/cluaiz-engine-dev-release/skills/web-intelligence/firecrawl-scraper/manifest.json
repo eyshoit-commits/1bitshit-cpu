@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.web.firecrawl",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Deep web scraping and content extraction.",
+    "author":  "Cluaiz OS",
+    "name":  "firecrawl-scraper",
+    "triggers":  {
+                     "semantic":  [
+                                      "firecrawl-scraper",
+                                      "web-intelligence"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

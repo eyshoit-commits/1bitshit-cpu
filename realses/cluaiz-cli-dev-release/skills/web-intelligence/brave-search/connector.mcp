@@ -1,0 +1,2 @@
+// Brave Search MCP
+{ "mcp_servers": { "brave": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-brave-search"] } } }

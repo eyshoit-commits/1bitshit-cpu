@@ -1,0 +1,28 @@
+{
+    "compatibility": {
+        "min_hidden_dim": 2048,
+        "model_families": [
+            "UNIVERSAL"
+        ]
+    },
+    "permissions": {
+        "filesystem": true,
+        "mcp_servers": [],
+        "level": "ReadOnly",
+        "network": false
+    },
+    "id": "cluaiz.skill.core.agentic-eval",
+    "soul_type": "STEERING_VECTOR",
+    "version": "1.0.0",
+    "description": "Self-critique and verification layer for agent actions.",
+    "author": "Cluaiz OS",
+    "name": "agentic-eval",
+    "triggers": {
+        "semantic": [
+            "agentic-eval",
+            "core-intelligence"
+        ],
+        "entropy_threshold": 0.7
+    },
+    "checksum": "pending"
+}

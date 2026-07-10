@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.ops.storage",
+    "soul_type":  "STEERING_VECTOR",
+    "version":  "1.0.0",
+    "description":  "Hardware-level storage health and speed benchmarking.",
+    "author":  "Cluaiz OS",
+    "name":  "storage-probe",
+    "triggers":  {
+                     "semantic":  [
+                                      "storage-probe",
+                                      "sovereign-ops"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "cluaiz.skill.data.duckdb-expert",
+  "name": "DuckDB Analytics Expert",
+  "version": "1.0.0",
+  "author": "Cluaiz OS",
+  "description": "High-speed in-memory SQL analytics and data processing.",
+  "triggers": {
+    "semantic": ["sql", "query", "database", "analytics", "duckdb"],
+    "entropy_threshold": 0.7
+  },
+  "permissions": {
+    "level": "ReadOnly",
+    "network": false,
+    "filesystem": true,
+    "mcp_servers": []
+  },
+  "compatibility": {
+    "model_families": ["UNIVERSAL"],
+    "min_hidden_dim": 2048
+  },
+  "soul_type": "KV_CACHE",
+  "checksum": "pending"
+}

@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.comm.gmail",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Native Google Mail interaction and automation.",
+    "author":  "Cluaiz OS",
+    "name":  "gmail-automation",
+    "triggers":  {
+                     "semantic":  [
+                                      "gmail-automation",
+                                      "communication"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

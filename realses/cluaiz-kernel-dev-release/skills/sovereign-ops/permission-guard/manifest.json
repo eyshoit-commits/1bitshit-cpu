@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.ops.permission",
+    "soul_type":  "STEERING_VECTOR",
+    "version":  "1.0.0",
+    "description":  "Zero-trust security verification and access control.",
+    "author":  "Cluaiz OS",
+    "name":  "permission-guard",
+    "triggers":  {
+                     "semantic":  [
+                                      "permission-guard",
+                                      "sovereign-ops"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

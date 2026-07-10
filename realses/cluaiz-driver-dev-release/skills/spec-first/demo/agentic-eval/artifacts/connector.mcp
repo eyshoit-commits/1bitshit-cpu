@@ -1,0 +1,14 @@
+{
+  "mcp_id": "eval_dataset_bridge",
+  "endpoint": "https://example.local/eval/mcp",
+  "auth": {
+    "type": "Bearer",
+    "env_var": "EVAL_DATASET_TOKEN"
+  },
+  "tools": [
+    {
+      "name": "fetch_eval_cases",
+      "description": "Fetch test prompts and expected behavior for evaluation runs."
+    }
+  ]
+}

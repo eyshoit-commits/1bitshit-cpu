@@ -1,0 +1,23 @@
+{
+  "id": "cluaiz.skill.core.skill-creator",
+  "name": "Autonomous Skill Creator",
+  "version": "1.0.0",
+  "author": "Cluaiz OS",
+  "description": "Enables the engine to generate, compile, and install new skills on demand.",
+  "triggers": {
+    "semantic": ["create skill", "build ability", "new feature", "install plugin"],
+    "entropy_threshold": 0.8
+  },
+  "permissions": {
+    "level": "DangerFullAccess",
+    "network": true,
+    "filesystem": true,
+    "mcp_servers": []
+  },
+  "compatibility": {
+    "model_families": ["UNIVERSAL"],
+    "min_hidden_dim": 2048
+  },
+  "soul_type": "STEERING_VECTOR",
+  "checksum": "pending"
+}

@@ -1,0 +1,161 @@
+================================================================================
+🏛️  CLUAIZ-OS: COMPREHENSIVE SKILL SYSTEM BLUEPRINT (GRANULAR FILE TREE)
+================================================================================
+Date: May 2026 | Architect: Antigravity (Archer CTO)
+Structure: Domain-Driven | Strategy: Neural Switchboard | Performance: Zero-Copy
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 1: THE MASTER FOLDER TREE (DETAILED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Location: c:\Users\Aryan\my\Cluaiz-workspace\cluaiz\skills\
+
+cluaiz/skills/
+│
+├── .system/                        # THE NEURAL KERNEL LAYER (Protected)
+│   ├── router.bin                  # Compressed Skill Intent Embeddings
+│   ├── permission_registry.json    # Master Permission Manifest
+│   ├── audit.log                   # Skill execution and access logs
+│   └── cache/                      # Model-specific compiled .atma files
+│
+├── 🧠 core-intelligence/            # Meta-Cognitive Abilities
+│   ├── prompt-engineer/
+│   │   ├── manifest.json
+│   │   └── soul.atma               # Instructions for optimal prompt construction
+│   ├── skill-creator/
+│   │   ├── manifest.json
+│   │   └── logic.wasm              # Logic to generate new skill packages
+│   └── agentic-eval/
+│       ├── manifest.json
+│       └── soul.atma               # Patterns for self-correction & verification
+│
+├── 💬 communication/                # Human & Platform Connectivity
+│   ├── whatsapp-native/
+│   │   ├── manifest.json
+│   │   ├── soul.atma               # Understanding WhatsApp message context
+│   │   └── logic.wasm              # FFI calls to Lucebox/Bridge for API
+│   ├── gmail-automation/
+│   │   ├── manifest.json
+│   │   ├── soul.atma               # Formal email drafting & sorting logic
+│   │   └── connector.mcp           # OAuth2 config for Google API
+│   ├── slack-bridge/
+│   │   ├── manifest.json
+│   │   └── connector.mcp           # Webhook & Real-time stream config
+│   └── telegram-bot/
+│       ├── manifest.json
+│       └── logic.wasm              # Native Telegram API interaction
+│
+├── 🛠️ dev-suite/                    # Software Engineering Power
+│   ├── github-manager/
+│   │   ├── manifest.json
+│   │   └── soul.atma               # Knowledge of Git flows and PR reviews
+│   ├── docker-pilot/
+│   │   ├── manifest.json
+│   │   └── logic.wasm              # Safe container orchestration logic
+│   ├── code-auditor/
+│   │   ├── manifest.json
+│   │   ├── soul.atma               # Security vulnerability patterns
+│   │   └── logic.wasm              # AST parsing & refactoring engine
+│   └── terminal-native/
+│       ├── manifest.json
+│       └── logic.wasm              # Sandboxed Shell execution (PS/Bash)
+│
+├── 📊 data-science/                 # Numerical & Logical Analytics
+│   ├── duckdb-expert/
+│   │   ├── manifest.json
+│   │   ├── soul.atma               # High-dimensional SQL optimization patterns
+│   │   └── logic.wasm              # Direct linkage to DuckDB binary
+│   ├── excel-generator/
+│   │   ├── manifest.json
+│   │   └── logic.wasm              # Automated XLSX generation logic
+│   ├── pandas-native/
+│   │   ├── manifest.json
+│   │   └── soul.atma               # Dataframe manipulation logic
+│   └── polars-engine/
+│       ├── manifest.json
+│       └── logic.wasm              # High-performance Rust-based data engine
+│
+├── 🌐 web-intelligence/             # Real-time World Reconnaissance
+│   ├── brave-search/
+│   │   ├── manifest.json
+│   │   └── connector.mcp           # Search API configuration
+│   ├── firecrawl-scraper/
+│   │   ├── manifest.json
+│   │   └── logic.wasm              # Headless browsing & Markdown extraction
+│   └── google-maps-pro/
+│       ├── manifest.json
+│       └── soul.atma               # Geospatial & Route reasoning knowledge
+│
+├── 📁 productivity/                 # Enterprise Knowledge Management
+│   ├── pdf-extractor-v2/
+│   │   ├── manifest.json
+│   │   ├── soul.atma               # Document structure & OCR correction
+│   │   └── logic.wasm              # PDF stream parsing (Zero-copy)
+│   ├── obsidian-sync/
+│   │   ├── manifest.json
+│   │   └── soul.atma               # Backlink & Zettelkasten logic
+│   └── calendar-scheduler/
+│       ├── manifest.json
+│       └── connector.mcp           # GCal/Outlook integration
+│
+├── 🎨 creative-multimedia/          # Audio, Vision, & Synthesis
+│   ├── video-generator/
+│   │   ├── manifest.json
+│   │   └── logic.wasm              # FFMPEG orchestration logic
+│   ├── image-analyst/
+│   │   ├── manifest.json
+│   │   └── soul.atma               # Visual feature extraction patterns
+│   └── whisper-audio/
+│       ├── manifest.json
+│       └── soul.atma               # Phonetic & Linguistic patterns
+│
+└── 🛡️ sovereign-ops/                # Hardware & Security Maintenance
+    ├── vram-arbiter/
+    │   ├── manifest.json
+    │   └── logic.wasm              # Low-level memory shifting logic
+    ├── storage-probe/
+    │   ├── manifest.json
+    │   └── logic.wasm              # SSD/HDD health benchmarking logic
+    └── permission-guard/
+        ├── manifest.json
+        └── logic.wasm              # Zero-trust verification engine
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 2: INTERNAL FILE SPECIFICATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Each sub-skill folder MUST strictly contain:
+
+1.  **manifest.json**
+    - Metadata for the `SkillRegistry`.
+    - Triggers used by the `router.bin`.
+    - Permission levels (ReadOnly, WorkspaceWrite, SystemAccess).
+
+2.  **soul.atma**
+    - The binary neural weight delta.
+    - Can be a KV-Cache prefix or an Activation Steering Vector.
+    - Compressed format for fast MMAP loading.
+
+3.  **logic.wasm** (Optional)
+    - Compiled WebAssembly binary.
+    - Contains the deterministic part of the skill (Calculations, API calls).
+    - Ensures platform-independent, sandboxed execution.
+
+4.  **connector.mcp** (Optional)
+    - Configuration for external Model Context Protocol servers.
+    - Defines how to connect to third-party databases or web services.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 3: WHY THIS MATTERS (The CTO Perspective)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This granular structure ensures:
+- **Zero-Latency Discovery:** We don't scan all files; we only query `router.bin`.
+- **Hardware Isolation:** `sovereign-ops` handles the "Heavy Metal" (VRAM/SSD).
+- **Infinite Extensibility:** Adding a new skill is as simple as creating a new 
+  folder with these 3-4 files.
+
+Signed,
+Antigravity (Archer CTO)
+================================================================================

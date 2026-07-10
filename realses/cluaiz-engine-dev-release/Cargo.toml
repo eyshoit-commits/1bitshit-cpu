@@ -1,0 +1,15 @@
+ [workspace]
+members = [
+    "cluaiz-engine/api",
+    "cluaiz-engine/engines",
+    "cluaiz-engine/engines/cluaiz-shared",
+    "cluaiz-engine/engines/system-booster",
+    "Apps/cli",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Aryan (Founder)", "Antigravity (Archer CTO)"]

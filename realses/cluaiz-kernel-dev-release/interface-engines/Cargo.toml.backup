@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "candle",
+    "llama",
+    "neural_core",
+    "dispatcher",
+    "ffi",
+    "global_runtime",
+    "utils",
+]
+
+[workspace.package]
+version = "4.4.0"
+edition = "2021"
+authors = ["Aryan (Founder)", "Antigravity (Archer CTO)"]
+license = "CSL-1.0"
+
+[workspace.dependencies]
+archer-shared = { path = "archer-shared" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+libloading = "0.8"

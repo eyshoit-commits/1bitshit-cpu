@@ -1,0 +1,23 @@
+{
+  "id": "cluaiz.skill.dev.github-manager",
+  "name": "GitHub Native Manager",
+  "version": "1.0.0",
+  "author": "Cluaiz OS",
+  "description": "Deep repository management, PR reviews, and Issue automation.",
+  "triggers": {
+    "semantic": ["github", "pull request", "repo", "commit", "push"],
+    "entropy_threshold": 0.7
+  },
+  "permissions": {
+    "level": "WorkspaceWrite",
+    "network": true,
+    "filesystem": true,
+    "mcp_servers": ["github"]
+  },
+  "compatibility": {
+    "model_families": ["UNIVERSAL"],
+    "min_hidden_dim": 2048
+  },
+  "soul_type": "KV_CACHE",
+  "checksum": "pending"
+}

@@ -1,0 +1,28 @@
+{
+    "compatibility": {
+        "min_hidden_dim": 2048,
+        "model_families": [
+            "UNIVERSAL"
+        ]
+    },
+    "permissions": {
+        "filesystem": true,
+        "mcp_servers": [],
+        "level": "ReadOnly",
+        "network": false
+    },
+    "id": "cluaiz.skill.dev.terminal",
+    "soul_type": "STEERING_VECTOR",
+    "version": "1.0.0",
+    "description": "Sandboxed native shell execution and system management.",
+    "author": "Cluaiz OS",
+    "name": "terminal-native",
+    "triggers": {
+        "semantic": [
+            "terminal-native",
+            "dev-suite"
+        ],
+        "entropy_threshold": 0.7
+    },
+    "checksum": "pending"
+}

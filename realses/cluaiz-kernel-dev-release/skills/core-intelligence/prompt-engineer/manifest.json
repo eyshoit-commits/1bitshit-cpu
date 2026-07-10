@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.core.prompt-engineer",
+    "soul_type":  "STEERING_VECTOR",
+    "version":  "1.0.0",
+    "description":  "Optimizes model prompts for higher reasoning accuracy.",
+    "author":  "Cluaiz OS",
+    "name":  "prompt-engineer",
+    "triggers":  {
+                     "semantic":  [
+                                      "prompt-engineer",
+                                      "core-intelligence"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

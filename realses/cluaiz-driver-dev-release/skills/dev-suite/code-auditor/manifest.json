@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.dev.auditor",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Deep static analysis and security auditing of codebases.",
+    "author":  "Cluaiz OS",
+    "name":  "code-auditor",
+    "triggers":  {
+                     "semantic":  [
+                                      "code-auditor",
+                                      "dev-suite"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

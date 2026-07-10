@@ -1,0 +1,17 @@
+{
+  "id": "cluaiz.skill.agentic_eval",
+  "name": "Agentic Eval",
+  "version": "1.0.0",
+  "description": "Evaluate agent outputs, quality, and safety with benchmark-ready scoring.",
+  "triggers": {
+    "semantic": ["evaluate", "benchmark", "quality check"],
+    "entropy_threshold": 0.35
+  },
+  "permissions": {
+    "level": "WorkspaceWrite",
+    "network": true,
+    "filesystem": true
+  },
+  "runtime_mode": "sovereign_hybrid",
+  "soul_type": "KV_CACHE"
+}

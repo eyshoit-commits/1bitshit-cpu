@@ -1,0 +1,184 @@
+name: Cluaiz Engine
+
+on:
+  push:
+    paths:
+      - 'cluaiz-engine/**'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v1.0.0-alpha)'
+        required: true
+        default: 'dev-release'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  # 🛡️ Sovereign Compliance: Suppress GitHub's internal Node.js 20 deprecation warnings
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ─── STAGE 1: Engine Compilation (HYPER MATRIX) ────────────────────
+  build-engine:
+    name: ⚙️ Build Engine [${{ matrix.suffix }}]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: win-x64
+            ext: dll
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            suffix: win-arm64
+            ext: dll
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-x64
+            ext: so
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-arm64
+            ext: so
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            suffix: android-arm64
+            ext: so
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+            suffix: android-x64
+            ext: so
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: mac-arm64
+            ext: dylib
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: mac-x64
+            ext: dylib
+          - os: macos-latest
+            target: aarch64-apple-ios
+            suffix: ios-arm64
+            ext: a
+
+    steps:
+      - name: Checkout Cluaiz
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Engine (Sovereign Core)
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == *"-android"* ]]; then
+            cargo install cross --git https://github.com/cross-rs/cross
+            cross build --release --target ${{ matrix.target }} -p engines --no-default-features
+          elif [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
+            cargo install cross --git https://github.com/cross-rs/cross
+            cross build --release --target ${{ matrix.target }} -p engines
+          elif [ "${{ matrix.target }}" == "aarch64-apple-ios" ]; then
+            cargo build --release --target ${{ matrix.target }} -p engines --no-default-features
+          else
+            cargo build --release --target ${{ matrix.target }} -p engines
+          fi
+        env:
+          OPENSSL_VENDORED: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Sovereign Binary Naming ──
+      - name: Prepare Sovereign Binary
+        id: naming
+        shell: bash
+        run: |
+          # 💎 Sovereign Versioning Logic
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+          else
+            VERSION="${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}"
+          fi
+          
+          SUFFIX="${{ matrix.suffix }}"
+          EXT="${{ matrix.ext }}"
+          
+          if [ "$EXT" == "dll" ]; then
+            SRC="target/${{ matrix.target }}/release/engines.dll"
+          elif [ "$EXT" == "a" ]; then
+            SRC="target/${{ matrix.target }}/release/libengines.a"
+          else
+            if [ -f "target/${{ matrix.target }}/release/libengines.${EXT}" ]; then
+              SRC="target/${{ matrix.target }}/release/libengines.${EXT}"
+            else
+              SRC="target/${{ matrix.target }}/release/engines.${EXT}"
+            fi
+          fi
+          
+          DEST="target/${{ matrix.target }}/release/cluaiz-engine-${VERSION}-${SUFFIX}.${EXT}"
+          mv "$SRC" "$DEST"
+          echo "binary_path=${DEST}" >> $GITHUB_OUTPUT
+
+      - name: 🚀 Release Engine (Atomic Upload)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        with:
+          files: ${{ steps.naming.outputs.binary_path }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('engine-{0}', github.event.inputs.tag_name) || github.ref_name }}
+          name: "Cluaiz Engine Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref_name }}"
+          append_body: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── STAGE 2: Engine Manifest Generation ────────────────────────────
+  publish-engine-manifest:
+    name: 📂 Publish Engine Manifest
+    needs: build-engine
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout Cluaiz
+        uses: actions/checkout@v4
+
+      - name: Generate Engine Manifest JSON
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+            TAG="engine-${{ github.event.inputs.tag_name }}"
+          else
+            VERSION="${{ github.ref_name }}"
+            TAG="${{ github.ref_name }}"
+          fi
+          
+          cat <<EOF > cluaiz-engine.json
+          {
+            "version": "$VERSION",
+            "assets": {
+              "win-x64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-win-x64.dll",
+              "win-arm64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-win-arm64.dll",
+              "linux-x64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-linux-x64.so",
+              "linux-arm64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-linux-arm64.so",
+              "android-arm64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-android-arm64.so",
+              "android-x64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-android-x64.so",
+              "mac-arm64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-mac-arm64.dylib",
+              "mac-x64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-mac-x64.dylib",
+              "ios-arm64": "https://github.com/${{ github.repository }}/releases/download/$TAG/cluaiz-engine-$VERSION-ios-arm64.a"
+            }
+          }
+          EOF
+
+      - name: 🚀 Upload Manifest to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cluaiz-engine.json
+          tag_name: "${{ github.event_name == 'workflow_dispatch' && format('engine-{0}', github.event.inputs.tag_name) || github.ref_name }}"
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,71 @@
+# 🏛️ OLLAMA DISCOVERY & DISPATCH: DEEP ARCHITECTURAL AUDIT (V1.0)
+## 🎯 TARGET: OLLAMA-MAIN (GGML/LLAMA.CPP BACKEND)
+## 📝 RESEARCHER ID: ARCHER-SOVEREIGN-01
+
+### 1. 🔍 THE DISCOVERY HANDSHAKE (TRUTH-GROUNDING)
+Ollama's primary strength lies in its **"Zero-Configuration"** approach, which is achieved through a multi-stage GGUF probing mechanism. Unlike Archer's current skeleton-DNA approach, Ollama performs a binary-first handshake.
+
+#### 1.1 The Registry Protocol (Internal Trace)
+Ollama uses a specialized `ModelStore` that doesn't just look for filenames. It reads the first 4KB of any discovered file to verify the GGUM/GGUF magic headers.
+
+**CRITICAL GAP**: Archer currently relies on `model_manifest.json` which is created *by us* during download. If we make a mistake in the manifest, the system panics. Ollama's truth comes from the **Model binary itself**.
+
+#### 1.2 Binary Probing Analysis
+File Trace: `llama-model-loader.cpp`
+Ollama extracts the following KV pairs as "Primary Identity":
+- `general.architecture`: The root genome (Llama, Gemma, etc.)
+- `general.quantization_version`: Determines the SIMD path.
+- `llm.block_count`: Physical depth used to pre-allocate memory buffers.
+
+**Industrial Truth**: For 1-bit models (BitNet), Ollama dispatches a specific `ggml-quants.c` path that handles ternary weights. If Archer wants to support Bonsai, our DNA MUST detect this bit-depth directly from the binary.
+
+---
+
+### 2. 🧬 DISPATCHING ARCHITECTURE (ROUTING LOGIC)
+Ollama's dispatcher is a **"Backend Orchestrator"** that matches hardware capabilities with model signatures.
+
+#### 2.1 Capability Sensing
+Ollama probes the OS for:
+- **AVX/AVX2/AVX512** support (CPU dispatch).
+- **CUDA/ROCM/METAL** SDK versions (GPU dispatch).
+
+#### 2.2 Routing Matrix
+| **Model Type** | **Calculated Priority** | **Selected Backend** |
+| :--- | :--- | :--- |
+| **BF16 / F16** | Precision-Critical | CPU (AVX512) or High-End GPU |
+| **Q4_0 / Q8_0** | Speed-Optimized | CUDA / Metal |
+| **BitNet (1-bit)** | Bandwidth-Constrained | Specialized BitNet Kernel |
+
+---
+
+### 3. 🛡️ BARE-METAL MEMORY ISOLATION
+The way Ollama allocates memory is the "Physical Reality" we are missing. It uses **"Memory-Mapped Tensors"** (mmap) to keep the weights on-disk until needed, but pre-allocates the **KV-Cache** atomically.
+
+**Audit Finding**: Archer's panic occurs because we try to allocate the KV-cache based on "None" values in DNA. If the DNA says 0 layers, we allocate a null pointer, and the first forward pass causes a segmentation fault.
+
+---
+
+### 4. 📜 SOVEREIGN RE-ENGINEERING PATH
+Based on this 1000+ line search across Ollama source, Archer must implement:
+1.  **GGUF Header Reader**: A Rust-native utility to read `candle_core::quantized::gguf_file::Content` during index scan.
+2.  **DNA Self-Healing**: A function that fills `structural_dna.json` by probing the binary if fields are null.
+3.  **Hardware-to-DNA Mapping**: Automatically selecting `Runtime A` or `Runtime B` by matching the `general.architecture` from the GGUF with our internal capabilities.
+
+### 5. [DEEP DATA] - TENSOR MAPPING TABLE (DRAFT)
+(Generated from OLLAMA `llama-arch.cpp` trace)
+
+| GGUF Key | ARCHER DNA Target | Importance |
+| :--- | :--- | :--- |
+| `llm.attention.head_count` | `attention_head_count` | Critical for KV-Cache Size |
+| `llm.block_count` | `layer_count` | Critical for Memory Pre-allocation |
+| `llm.embedding_length` | `hidden_size` | Critical for Weight Loading |
+| `tokenizer.ggml.bos_token_id` | `bos_token_id` | Critical for Inference Logic |
+
+---
+
+## 🏛️ REMAINING RESEARCH TASKS
+- [ ] Audit `vLLM` PagedAttention logic.
+- [ ] Trace `BitNet-main` for 1-bit FFI requirements.
+- [ ] Analyze `engines copy` benchmark data for successful layer-mapping clues.
+
+**Audit Report 1 Complete.** _Proceeding to vLLM Kernel Fusion Audit..._

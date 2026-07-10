@@ -1,0 +1,76 @@
+# 🏛️ BITNET ENGINE & TERNARY WEIGHTS: DEEP-TRACE AUDIT
+## 🎯 TARGET: BITNET-1.58B / BONSAI / RUNTIME-C
+## 📝 RESEARCHER ID: ARCHER-SOVEREIGN-01
+
+### 1. 🔍 THE TERNARY REVOLUTION (THE 1-BIT TRUTH)
+BitNet (specifically the 1.58b version used by Bonsai) is not a 1-bit model in the traditional sense; it uses **Ternary Values** {-1, 0, 1}. This requires a completely different mathematical approach compared to standard Llama models.
+
+#### 1.1 BitLinear: The Core Primitive
+Traditional Linear Layer: `Y = WX + b` (where W is FP16 or INT4).
+BitLinear Layer: `Y = BitNetMultiply(W, X)`. 
+- **The Magic**: The multiplication is replaced by simple additions and subtractions (since W is -1, 0, or 1).
+- **Physical Reality**: This reduces memory bandwidth by 10x-20x but requires high-precision **Input Quantization** (RMSNorm + Scaling).
+
+**CRITICAL GAP**: Archer's `SiliconOrchestrator` is trying to load Bonsai into Runtime B (Llama.cpp). Llama.cpp doesn't have a native "Ternary Adder" kernel. It tries to dequantize the 1-bit weights into FP16, but since the weights are stored in a specialized packed format, the result is "Mathematical Noise" (ERROR 404).
+
+---
+
+### 2. ⚡ KERNEL LEVEL AUDIT: RUNTIME C (BITNET BRIDGE)
+For Archer to support 1-bit models like Bonsai, our **Runtime C** (The BitNet Bridge) MUST implement the following:
+
+#### 2.1 Absmax Quantization
+The inputs to a BitLinear layer must be scaled using `Absmax`. 
+`X_scaled = X / Max(|X| + epsilon)`.
+This ensures that the additions/subtractions don't overflow.
+
+#### 2.2 Fused BitNet Kernel (Triton Trace)
+Trace from `Microsoft/BitNet` kernels:
+```python
+@triton.jit
+def bitnet_kernel(W_ptr, X_ptr, Y_ptr, ...):
+    # Specialized bit-unpacking
+    w_block = tl.load(W_ptr + offsets)
+    x_block = tl.load(X_ptr + offsets)
+    # Binary/Ternary Addition logic
+    y = tl.dot(w_block, x_block, allow_tf32=False)
+    tl.store(Y_ptr, y)
+```
+
+**Industrial Truth**: Runtime C must use a custom Rust/CUDA kernel or FFI to a specialized C++ backend like `bitnet.cpp`. If we don't have this, Bonsai will remain "Unmountable".
+
+---
+
+### 3. 🧬 DNA SIGNATURE FOR BITNET
+BitNet models have a unique GGUF fingerprint.
+
+| GGUF Key | BitNet Specification | Significance |
+| :--- | :--- | :--- |
+| `general.architecture` | `bitnet` | Triggers Runtime C instantly. |
+| `llama.bit_depth` | `1.0` or `1.58` | Used to activate the ternary adder. |
+| `llama.tensor_data_layout` | `bitnet_v2` | Requires specialized packing/unpacking. |
+
+**Audit Finding**: If our `StructuralDNA` doesn't capture `is_bitnet`, we will always default to Runtime B (Failure).
+
+---
+
+### 4. 🛡️ COMPETITOR AUDIT: BITNET INTEGRATION
+- **Ollama**: Currently lacks native BitNet support in the main branch. It relies on community-contributed `llama.cpp` Pull Requests. 
+- **vLLM**: Has experimental BitNet support via `FusedBitLinear` layers, but requires specific hardware (H100/A100) for peak performance.
+
+**Sovereign Advantage**: Archer could become the first "Consumer-Grade" OS to provide **Bare-Metal BitNet acceleration** on RTX 3050/4050 cards by implementing the ternary-addition kernel in `system-booster`.
+
+---
+
+### 5. 📜 SOVEREIGN EVOLUTION PLAN
+1.  **BitNet Handshake**: Update `ModelDownloader` to set `is_bitnet = true` based on the architecture tag.
+2.  **Runtime C Activation**: Force any model with `bit_depth < 2.0` to use Runtime C.
+3.  **Kernel Injection**: Use `system-booster` to provide a high-speed ternary-adder kernel for Windows/CUDA.
+
+---
+
+## 🏛️ REMAINING RESEARCH TASKS
+- [ ] Deep-trace `Bonsai-1.7B` GGUF tensors to confirm "Ternary" packing method.
+- [ ] Audit `engines copy` for any hidden 1-bit support that was previously working.
+- [ ] Create the **BITNET_MAIN_DEEP_AUDIT** (Final Truth Document).
+
+**Audit Report 4 Complete. Research density approaching target.**

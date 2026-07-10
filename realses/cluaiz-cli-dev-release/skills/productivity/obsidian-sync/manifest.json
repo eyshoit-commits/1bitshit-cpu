@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.prod.obsidian",
+    "soul_type":  "KV_CACHE",
+    "version":  "1.0.0",
+    "description":  "Knowledge graph management and markdown synchronization.",
+    "author":  "Cluaiz OS",
+    "name":  "obsidian-sync",
+    "triggers":  {
+                     "semantic":  [
+                                      "obsidian-sync",
+                                      "productivity"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}

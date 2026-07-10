@@ -1,0 +1,30 @@
+{
+    "compatibility":  {
+                          "min_hidden_dim":  2048,
+                          "model_families":  [
+                                                 "UNIVERSAL"
+                                             ]
+                      },
+    "permissions":  {
+                        "filesystem":  true,
+                        "mcp_servers":  [
+
+                                        ],
+                        "level":  "ReadOnly",
+                        "network":  false
+                    },
+    "id":  "cluaiz.skill.ops.vram",
+    "soul_type":  "STEERING_VECTOR",
+    "version":  "1.0.0",
+    "description":  "Low-level VRAM management and model context shifting.",
+    "author":  "Cluaiz OS",
+    "name":  "vram-arbiter",
+    "triggers":  {
+                     "semantic":  [
+                                      "vram-arbiter",
+                                      "sovereign-ops"
+                                  ],
+                     "entropy_threshold":  0.7
+                 },
+    "checksum":  "pending"
+}
