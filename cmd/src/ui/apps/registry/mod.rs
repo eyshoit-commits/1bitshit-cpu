@@ -80,6 +80,10 @@ impl RegistryApp {
 
                     if let Some(rec) = state.sorted_models.get_mut(idx) {
                         let name = rec.manifest.name.clone();
+                        let model_id = rec.manifest.id.clone();
+                        let category = rec.manifest.category.clone();
+                        let filename = rec.manifest.huggingface_filename.clone();
+                        let known_path = rec.manifest.local_path.clone();
                         let (_, score, _) = RegistryTable::calculate_health(rec, &state.hardware);
                         
                         if score == 0 {
@@ -105,6 +109,40 @@ impl RegistryApp {
                         });
 
                         match action {
+                            Some(act) if act == "LOAD" => {
+                                let model_path = known_path
+                                    .map(std::path::PathBuf::from)
+                                    .or_else(|| engines::ModelDownloader::get_cached_path(
+                                        &category,
+                                        &model_id,
+                                        &filename,
+                                    ));
+
+                                if let Some(path) = model_path {
+                                    engines::neural_foundry::security::permission_schema::PermissionSchema::set_active_chat_model(model_id.clone());
+                                    state._active_model_id = Some(model_id);
+
+                                    let handle = tokio::runtime::Handle::current();
+                                    let load_result = tokio::task::block_in_place(|| {
+                                        handle.block_on(state.Core_engine.load_model(path))
+                                    });
+
+                                    match load_result {
+                                        Ok(()) => {
+                                            println!("  {} {} is active.", "✅".green(), name.bold());
+                                            history_segment = Some(format!("{} ❯ Active", name.dimmed()));
+                                        }
+                                        Err(error) => {
+                                            println!("  {} Load failed: {}", "❌".red(), error);
+                                            history_segment = Some(format!("{} ❯ Load failed", name.dimmed()));
+                                        }
+                                    }
+                                } else {
+                                    println!("  {} Cached model path is missing.", "❌".red());
+                                    history_segment = Some(format!("{} ❯ Missing", name.dimmed()));
+                                }
+                                continue;
+                            },
                             Some(act) if act == "DELETE" => {
                                 history_segment = Some(format!("{} ❯ {} {}", name.dimmed(), "🗑️".dimmed(), "Deleted".dimmed()));
                                 continue; 

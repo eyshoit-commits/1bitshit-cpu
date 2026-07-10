@@ -116,6 +116,9 @@ pub fn show_details(
         if !rec.is_cached {
             options.push("📥  INITIATE DOWNLOAD".to_string());
             back_btn_idx = 1;
+        } else if rec.manifest.category != "embedding" {
+            options.push("▶  LOAD / SET ACTIVE".to_string());
+            back_btn_idx = 1;
         }
 
         options.push("↩  BACK".to_string());
@@ -226,6 +229,12 @@ pub fn show_details(
                     for _ in 0..5 { print!("\x1B[1A\x1B[2K\r"); }
                     let _ = stdout().flush();
 
+                } else if choice.contains("LOAD / SET ACTIVE") {
+                    for _ in 0..lines_printed + 3 {
+                        print!("\x1B[1A\x1B[2K\r");
+                    }
+                    let _ = stdout().flush();
+                    return Ok(Some("LOAD".to_string()));
                 } else if choice.contains("DELETE") {
                     let confirm =
                         inquire::Confirm::new("⚠️  Are you sure you want to delete this model?")
