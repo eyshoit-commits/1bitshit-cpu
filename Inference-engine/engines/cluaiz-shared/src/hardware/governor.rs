@@ -48,7 +48,8 @@ impl HardwareGovernor {
 
     /// 🔬 Deep surgical scan and persistence of silicon state.
     pub fn auto_calibrate() -> anyhow::Result<()> {
-        let control = HardwareOrchestrator::start()?;
+        let control = HardwareOrchestrator::probe();
+        Self::save_system_control(&control)?;
         Self::save_booster_settings(&Self::load_booster_settings().unwrap_or_default())?;
 
         // 🧠 Mission 12: Chronicle Foundry State
@@ -508,8 +509,9 @@ impl HardwareGovernor {
                 println!(
                     "⚠️ [Self-Healing] Binary Truth Corrupted ({error}). Recovering..."
                 );
-                Self::auto_calibrate()?;
-                Self::load_binary_truth()
+                let control = HardwareOrchestrator::probe();
+                Self::save_system_control(&control)?;
+                Ok(control)
             }
         }
     }
