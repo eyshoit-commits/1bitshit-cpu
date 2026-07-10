@@ -104,7 +104,7 @@ During the first rebranding phase:
 
 - product name: `1BitShit CPU`
 - primary command: `bitshit`
-- repository: `eyshoit-commits/cluaiz-cpu`
+- repository: `eyshoit-commits/1bitshit-cpu`
 - existing `cluaiz_*` crate and FFI names remain valid
 - existing local data directories are not automatically destroyed or silently abandoned
 
