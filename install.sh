@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HUB_PATH="${HOME}/.1bitshit"
-REPO="eyshoit-commits/cluaiz-cpu"
+REPO="eyshoit-commits/1bitshit-cpu"
 
 # --- UI Matrix (Industrial) ---
 BOLD='\033[1m'; CYAN='\033[0;36m'; GRAY='\033[0;90m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -38,7 +38,7 @@ fi
 
 # 3. Sovereign Registry Sync
 write_step "Synchronizing Neural Registry"
-MASTER_REGISTRY_URL="https://raw.githubusercontent.com/eyshoit-commits/cluaiz-cpu/main/package.json"
+MASTER_REGISTRY_URL="https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/package.json"
 MASTER_JSON=$(curl -sL "$MASTER_REGISTRY_URL")
 
 OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
