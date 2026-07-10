@@ -5,9 +5,16 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+const PULL_IMPLEMENTATION: &str = "visible-models-v2";
+
 /// Pull a model into the visible `./models/` tree, load it and enter the dashboard.
 pub async fn execute(model_id: &str) -> Result<()> {
-    println!("\n  {} [1BitShit CPU] Resolving '{}'...", "⚙️".yellow(), model_id.bold());
+    println!(
+        "\n  {} [1BitShit CPU:{}] Resolving '{}'...",
+        "⚙️".yellow(),
+        PULL_IMPLEMENTATION,
+        model_id.bold()
+    );
 
     let resolved_id = if !model_id.starts_with("hf://")
         && !model_id.starts_with("https://")
@@ -29,6 +36,13 @@ pub async fn execute(model_id: &str) -> Result<()> {
             .find(|model| model.id.eq_ignore_ascii_case(model_id))
             .ok_or_else(|| color_eyre::eyre::eyre!("Model ID '{model_id}' not found"))?
     };
+
+    if manifest.id.to_ascii_lowercase().contains("unknown") {
+        return Err(color_eyre::eyre::eyre!(
+            "Refusing stale model id '{}'. Delete the legacy hidden model entry and retry.",
+            manifest.id
+        ));
+    }
 
     let cached = engines::ModelDownloader::get_cached_path(
         &manifest.category,
