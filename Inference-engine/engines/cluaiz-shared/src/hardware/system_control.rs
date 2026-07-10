@@ -552,9 +552,9 @@ impl HardwareOrchestrator {
         let json_data = serde_json::to_string_pretty(control)?;
         std::fs::write(&json_path, json_data)?;
 
-        let bytes = rkyv::to_bytes::<_, 4096>(control)
+        let bytes = bincode::serialize(control)
             .map_err(|e| anyhow::anyhow!("Binary Serialization Failed: {}", e))?;
-        std::fs::write(&bin_path, bytes.as_slice())?;
+        std::fs::write(&bin_path, bytes)?;
 
         // 🔒 Step 3: Sovereign Lockdown (Prevent Delete/Edit)
         Self::set_file_lock(&json_path, true);
