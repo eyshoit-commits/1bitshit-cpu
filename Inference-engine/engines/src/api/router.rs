@@ -155,6 +155,19 @@ impl CoreRouter {
     }
 
     pub async fn load_model(path: PathBuf, runtime: BackendType) -> Result<Self, String> {
+        // File format is authoritative. A GGUF file is never a valid ONNX graph,
+        // regardless of stale manifests or fallback decisions made by callers.
+        let runtime = match path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("gguf") => BackendType::RuntimeB,
+            Some("onnx") => BackendType::RuntimeA,
+            _ => runtime,
+        };
+
         if let Some(parent) = path.parent() {
             let mut repo_id = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default().to_string();
             let manifest_path = parent.join("model_manifest.json");
@@ -212,7 +225,7 @@ impl CoreRouter {
         cluaiz_shared::dev_info!("🧬 [Router] Dispatching to HardwareOrchestrator for dynamic linkage ({})...", engine_str);
         let engine = HardwareOrchestrator::instantiate(&path.to_string_lossy(), engine_str, context)
             .await
-            .map_err(|e| format!("cluaiz Handshake Failure: {}", e))?;
+            .map_err(|e| format!("1BitShit handshake failure: {}", e))?;
 
 
 
