@@ -4,12 +4,18 @@ use crate::assets::logos::logo_gallery;
 use unicode_width::UnicodeWidthStr;
 use colored::Colorize;
 
-pub fn print_native_logo(index: usize) {
-    let variants = logo_gallery::LOGO_VARIANTS;
-    if index >= variants.len() { return; }
-    let logo_str = variants[index];
-    for line in logo_str.lines() {
-        // Disambiguate between Colorize and Stylize
+const STARTUP_LOGO: &str = r#"
+██╗██████╗ ██╗████████╗███████╗██╗  ██╗██╗████████╗
+██║██╔══██╗██║╚══██╔══╝██╔════╝██║  ██║██║╚══██╔══╝
+██║██████╔╝██║   ██║   ███████╗███████║██║   ██║
+██║██╔══██╗██║   ██║   ╚════██║██╔══██║██║   ██║
+██║██████╔╝██║   ██║   ███████║██║  ██║██║   ██║
+╚═╝╚═════╝ ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝
+                     C P U   R U N T I M E
+"#;
+
+pub fn print_native_logo(_index: usize) {
+    for line in STARTUP_LOGO.trim_matches('\n').lines() {
         println!("  {}", Colorize::cyan(line).bold());
     }
 }
@@ -28,8 +34,7 @@ pub fn render_best_fit_logo(buf: &mut Buffer, area: Rect, color: ratatui::prelud
     let mut rng = rand::thread_rng();
     let variants = logo_gallery::LOGO_VARIANTS;
     let terminal_width = area.width;
-    
-    // Find all variants that fit within terminal_width - 2
+
     let mut fitting_indices: Vec<usize> = Vec::new();
     let mut max_width_found = 0;
 
@@ -43,11 +48,8 @@ pub fn render_best_fit_logo(buf: &mut Buffer, area: Rect, color: ratatui::prelud
         }
     }
 
-    // Heuristic:
-    // To maintain quality, only pick from the "Better" fitting ones (e.g. at least 70% of max width found)
-    // but ALWAYS include the very tiny ones at the beginning of the gallery if width is very small.
     let candidates: Vec<usize> = if terminal_width < 50 {
-        fitting_indices // On small screens, anything that fits is fine for variety
+        fitting_indices
     } else {
         fitting_indices.into_iter()
             .filter(|&i| calculate_max_width(variants[i]) >= (max_width_found as f32 * 0.7) as u16)
@@ -65,28 +67,28 @@ pub fn render_from_gallery(index: usize, buf: &mut Buffer, area: Rect, color: ra
     if index >= variants.len() { return; }
     let logo_str = variants[index];
     let logo_lines: Vec<&str> = logo_str.lines().collect();
-    
-    let start_y = area.y; // Top-aligned to kill the gap
-    let start_x = area.x; // Left aligned
+
+    let start_y = area.y;
+    let start_x = area.x;
 
     for (i, line) in logo_lines.iter().enumerate() {
         let y = start_y + i as u16;
         if y >= area.bottom() { break; }
-        
+
         for (x_off, c) in (*line).chars().enumerate() {
             let byte_idx = (*line).char_indices().nth(x_off).map(|(i, _)| i).unwrap_or(0);
             let x = start_x + (line[..byte_idx].width()) as u16;
-            
+
             if x >= area.right() { break; }
-            
+
             let style = match c {
                 ' ' => Style::default(),
                 '█' | '▓' | '▒' | '░' | '▄' | '▀' | '▌' | '▐' | '╔' | '╗' | '╚' | '╝' | '═' | '║' => {
                     Style::default().fg(color).add_modifier(Modifier::BOLD)
                 },
-                _ => Style::default().fg(Color::Rgb(180, 180, 180)), // Light Gray for shadows
+                _ => Style::default().fg(Color::Rgb(180, 180, 180)),
             };
-            
+
             buf[(x, y)].set_char(c).set_style(style);
         }
     }
