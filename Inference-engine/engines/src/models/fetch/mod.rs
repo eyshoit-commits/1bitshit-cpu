@@ -1,12 +1,14 @@
-use std::path::PathBuf;
-use tracing::info;
-use tokio::sync::mpsc;
-use tokio::io::AsyncWriteExt;
-use futures_util::StreamExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use crate::models::registry::ModelManifest;
+
+use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
+use tracing::info;
+
+use crate::models::registry::ModelManifest;
 
 #[derive(Debug, Clone)]
 pub enum DownloadEvent {
@@ -20,10 +22,42 @@ pub enum DownloadEvent {
 pub struct ModelDownloader;
 
 impl ModelDownloader {
+    /// Models are intentionally stored in a visible `models/` directory.
+    /// `BITSHIT_MODELS_DIR` may override the location for installed or portable setups.
     fn get_models_dir() -> PathBuf {
-        cluaiz_shared::environment::EnvironmentManager::current()
-            .ensure_models_dir()
-            .unwrap_or_else(|_| cluaiz_shared::environment::EnvironmentManager::current().models_dir())
+        let dir = std::env::var_os("BITSHIT_MODELS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join("models")
+            });
+
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            tracing::warn!("Failed to create visible model directory {}: {}", dir.display(), error);
+        }
+        dir
+    }
+
+    /// One canonical directory name is used by download, lookup, purge and cleanup.
+    /// Previously download kept ':' while cache lookup replaced it with '-', making
+    /// freshly downloaded models immediately invisible to the roster.
+    fn model_dir_name(repo_id: &str) -> String {
+        let raw = repo_id.split('/').next_back().unwrap_or(repo_id);
+        raw.chars()
+            .map(|ch| match ch {
+                ':' | '/' | '\\' | ' ' => '-',
+                _ => ch,
+            })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string()
+    }
+
+    fn model_dir(category: &str, repo_id: &str) -> PathBuf {
+        Self::get_models_dir()
+            .join(category)
+            .join(Self::model_dir_name(repo_id))
     }
 
     pub fn is_model_cached(category: &str, repo_id: &str, filename: &str) -> bool {
@@ -31,32 +65,30 @@ impl ModelDownloader {
     }
 
     pub fn get_cached_path(category: &str, repo_id: &str, filename: &str) -> Option<PathBuf> {
-        let model_name = repo_id.split('/').next_back().unwrap_or(repo_id).replace(':', "-");
-        let models_dir = Self::get_models_dir();
-        let repo_path = models_dir.join(category).join(model_name);
-        
-        let file_basename = std::path::Path::new(filename)
+        let repo_path = Self::model_dir(category, repo_id);
+        let file_basename = Path::new(filename)
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(|name| name.to_str())
             .unwrap_or(filename);
-        
-        // 1. Check for main weight file
-        let weight_path = repo_path.join(file_basename);
-        if weight_path.exists() { return Some(weight_path); }
-        
-        // 2. Fallback: Search for any GGUF in the directory
-        if let Ok(entries) = std::fs::read_dir(&repo_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("gguf") {
-                    return Some(path);
-                }
-            }
+
+        let exact_path = repo_path.join(file_basename);
+        if exact_path.is_file() {
+            return Some(exact_path);
         }
-        None
+
+        let entries = std::fs::read_dir(&repo_path).ok()?;
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.is_file()
+                    && matches!(
+                        path.extension().and_then(|ext| ext.to_str()).map(str::to_ascii_lowercase),
+                        Some(ext) if ext == "gguf" || ext == "bin"
+                    )
+            })
     }
 
-    /// 🌐 NATIVE DOWNLOAD: Includes 'abort' signal, multi-asset support, and manifest generation.
     pub async fn download_gguf_async(
         category: &str,
         repo_id: &str,
@@ -65,190 +97,240 @@ impl ModelDownloader {
         _assets: Vec<crate::models::registry::ModelAsset>,
         manifest: Option<ModelManifest>,
         tx: mpsc::Sender<DownloadEvent>,
-        abort: Arc<AtomicBool>
+        abort: Arc<AtomicBool>,
     ) -> Result<PathBuf, String> {
-        let model_name = repo_id.split('/').next_back().unwrap_or(repo_id);
-        let dest_dir = Self::get_models_dir().join(category).join(model_name);
-        std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+        let dest_dir = Self::model_dir(category, repo_id);
+        std::fs::create_dir_all(&dest_dir).map_err(|error| error.to_string())?;
 
-        let file_basename = std::path::Path::new(filename)
+        let file_basename = Path::new(filename)
             .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(filename);
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty() && *name != "unknown")
+            .ok_or_else(|| format!("Invalid model filename for {repo_id}: {filename}"))?;
 
+        let weight_path = dest_dir.join(file_basename);
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(3600))
-            .user_agent("cluaiz/1.0")
+            .user_agent("1bitshit-cpu/0.2")
             .default_headers({
                 let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(reqwest::header::REFERER, "https://huggingface.co/".parse().unwrap_or(reqwest::header::HeaderValue::from_static("https://huggingface.co/")));
-                headers.insert(reqwest::header::ACCEPT, "*/*".parse().unwrap_or(reqwest::header::HeaderValue::from_static("*/*")));
+                headers.insert(
+                    reqwest::header::REFERER,
+                    reqwest::header::HeaderValue::from_static("https://huggingface.co/"),
+                );
+                headers.insert(
+                    reqwest::header::ACCEPT,
+                    reqwest::header::HeaderValue::from_static("*/*"),
+                );
                 headers
             })
             .build()
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| error.to_string())?;
 
-        // 1. Download the main weights (The ONLY file downloaded)
-        Self::download_single_file(&client, download_url, &dest_dir.join(file_basename), tx.clone(), abort.clone()).await?;
+        Self::download_single_file(
+            &client,
+            download_url,
+            &weight_path,
+            tx,
+            abort,
+        )
+        .await?;
 
-        // 2. ✅ Save model_manifest.json — makes the folder fully self-contained & portable
-        let weight_path = dest_dir.join(file_basename);
-        if let Some(m) = manifest {
+        if let Some(mut model_manifest) = manifest {
+            model_manifest.local_path = Some(weight_path.to_string_lossy().to_string());
             let manifest_path = dest_dir.join("model_manifest.json");
-            if let Ok(json) = serde_json::to_string_pretty(&m) {
-                let _ = std::fs::write(&manifest_path, json);
-            }
-            
-            // 🧬 DNA HANDSHAKE: Generate structural_dna.json with Binary Trace
-            let _ = Self::generate_cluaiz_dna(&m, &dest_dir, &weight_path);
+            let json = serde_json::to_string_pretty(&model_manifest)
+                .map_err(|error| error.to_string())?;
+            std::fs::write(&manifest_path, json).map_err(|error| error.to_string())?;
+            Self::generate_cluaiz_dna(&model_manifest, &dest_dir, &weight_path)?;
+        }
+
+        if !weight_path.is_file() {
+            return Err(format!(
+                "Download completed without a readable model file: {}",
+                weight_path.display()
+            ));
         }
 
         Ok(weight_path)
     }
 
-    /// 🧬 DNA GENERATOR: Creates the structural backbone for the engine's loader by probing the binary.
-    pub fn generate_cluaiz_dna(manifest: &ModelManifest, dest_dir: &std::path::Path, weight_path: &std::path::Path) -> Result<(), String> {
-        info!("🧬 [DNA] Generating Cluaiz architectural backbone for '{}'", manifest.id);
-        
-        let mut signature = cluaiz_shared::KernelSignature::default();
-        signature.is_multimodal = manifest.has_vision;
-        if manifest.expert_count.is_some() {
-            signature.has_experts = true;
-        }
-
-        let bit_val = manifest.bit_depth;
+    pub fn generate_cluaiz_dna(
+        manifest: &ModelManifest,
+        dest_dir: &Path,
+        weight_path: &Path,
+    ) -> Result<(), String> {
+        info!("[DNA] Generating structural metadata for '{}'", manifest.id);
 
         let mut dna = crate::models::registry::StructuralDNA::create_skeleton(
             manifest.id.clone(),
             manifest.has_vision,
             manifest.expert_count,
-            bit_val,
+            manifest.bit_depth,
             &manifest.context_window,
         );
 
-        // Add extra dynamic attributes
-        dna.dynamic_attributes.insert("bit_depth".to_string(), bit_val.to_string());
-        dna.dynamic_attributes.insert("parameters".to_string(), manifest.parameters.clone());
-        dna.dynamic_attributes.insert("training_tokens".to_string(), manifest.training_tokens.clone());
-        dna.dynamic_attributes.insert("category".to_string(), manifest.category.clone());
+        dna.dynamic_attributes
+            .insert("bit_depth".to_string(), manifest.bit_depth.to_string());
+        dna.dynamic_attributes
+            .insert("parameters".to_string(), manifest.parameters.clone());
+        dna.dynamic_attributes.insert(
+            "training_tokens".to_string(),
+            manifest.training_tokens.clone(),
+        );
+        dna.dynamic_attributes
+            .insert("category".to_string(), manifest.category.clone());
 
-        // 🔍 BINARY PROBE: Extracting truth directly from GGUF Hardware (Framework-Free)
-        if weight_path.exists() {
-            info!("🧬 [DNA] Probing weight binary: {:?}", weight_path);
-            if let Ok((metadata, _tensor_infos, _tensor_count)) = cluaiz_shared::utils::gguf_prober::GGUFProber::probe(weight_path) {
-                // If the engine has sync_with_metadata, call it. If not, we map values manually.
-                if let Some(ctx) = metadata.get("llama.context_length").or(metadata.get("qwen2.context_length")) {
-                    dna.max_context_length = ctx.parse().ok();
+        if weight_path.is_file() {
+            if let Ok((metadata, _, _)) =
+                cluaiz_shared::utils::gguf_prober::GGUFProber::probe(weight_path)
+            {
+                if let Some(context) = metadata
+                    .get("llama.context_length")
+                    .or_else(|| metadata.get("qwen2.context_length"))
+                {
+                    dna.max_context_length = context.parse().ok();
                 }
-                
-                // Store tokenizer configs in dynamic_attributes so they can be written to config.json
-                if let Some(chat_tmpl) = metadata.get("tokenizer.chat_template") {
-                    dna.chat_template = Some(chat_tmpl.clone());
+                if let Some(template) = metadata.get("tokenizer.chat_template") {
+                    dna.chat_template = Some(template.clone());
                 }
                 if let Some(eos) = metadata.get("tokenizer.ggml.eos_token_id") {
                     dna.eos_token = Some(eos.clone());
                 }
-                
-                info!("🧬 [DNA] Truth-Grounding complete via Binary Header Prober.");
-            } else {
-                info!("⚠️ [DNA] Failed to probe binary, falling back to Manifest.");
             }
         }
 
         let dna_path = dest_dir.join("structural_dna.json");
-        if let Ok(json) = serde_json::to_string_pretty(&dna) {
-            std::fs::write(&dna_path, json).map_err(|e| e.to_string())?;
-        }
-        
-
-        Ok(())
+        let json = serde_json::to_string_pretty(&dna).map_err(|error| error.to_string())?;
+        std::fs::write(dna_path, json).map_err(|error| error.to_string())
     }
 
     async fn download_single_file(
         client: &reqwest::Client,
         url: &str,
-        dest_path: &std::path::Path,
-        _tx: mpsc::Sender<DownloadEvent>,
-        abort: std::sync::Arc<std::sync::atomic::AtomicBool>
+        dest_path: &Path,
+        tx: mpsc::Sender<DownloadEvent>,
+        abort: Arc<AtomicBool>,
     ) -> Result<(), String> {
-        let response = client.get(url).send().await.map_err(|e| e.to_string())?;
+        if url.trim().is_empty() {
+            return Err("Model download URL is empty".to_string());
+        }
 
+        let response = client.get(url).send().await.map_err(|error| error.to_string())?;
         if !response.status().is_success() {
-            return Err(format!("Download failed for {}: HTTP {}", url, response.status()));
+            return Err(format!("Download failed for {url}: HTTP {}", response.status()));
         }
 
         let total_size = response.content_length().unwrap_or(0);
-        let mut downloaded: u64 = 0;
-        let mut file = tokio::fs::File::create(dest_path).await.map_err(|e| e.to_string())?;
+        let partial_path = dest_path.with_extension(format!(
+            "{}.part",
+            dest_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("download")
+        ));
+        let mut file = tokio::fs::File::create(&partial_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut downloaded = 0_u64;
+        let started = std::time::Instant::now();
 
-        // 🚀 NATIVE PROGRESS: The Hugging Face style bar
-        let pb = ProgressBar::new(total_size);
-        pb.set_style(ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-            .unwrap()
-            .progress_chars("#>-"));
+        let progress = ProgressBar::new(total_size);
+        progress.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                .map_err(|error| error.to_string())?
+                .progress_chars("#>-"),
+        );
 
         let mut stream = response.bytes_stream();
-
         while let Some(item) = stream.next().await {
-            if abort.load(std::sync::atomic::Ordering::SeqCst) {
+            if abort.load(Ordering::SeqCst) {
                 drop(file);
-                let _ = std::fs::remove_file(dest_path);
+                let _ = std::fs::remove_file(&partial_path);
+                progress.abandon_with_message("Download aborted");
                 return Err("ABORTED".to_string());
             }
 
-            let chunk = item.map_err(|e| e.to_string())?;
-            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+            let chunk = item.map_err(|error| error.to_string())?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|error| error.to_string())?;
             downloaded += chunk.len() as u64;
-            pb.set_position(downloaded);
+            progress.set_position(downloaded);
+
+            let elapsed = started.elapsed().as_secs_f64().max(0.001);
+            let speed = downloaded as f64 / elapsed;
+            let eta = if speed > 0.0 && total_size > downloaded {
+                ((total_size - downloaded) as f64 / speed) as u64
+            } else {
+                0
+            };
+            let fraction = if total_size > 0 {
+                downloaded as f32 / total_size as f32
+            } else {
+                0.0
+            };
+            let _ = tx.send(DownloadEvent::Progress(
+                fraction,
+                downloaded,
+                total_size,
+                speed,
+                eta,
+            ));
         }
-        
-        pb.finish_with_message("Download Complete");
+
+        file.flush().await.map_err(|error| error.to_string())?;
+        drop(file);
+        tokio::fs::rename(&partial_path, dest_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        progress.finish_with_message("Download complete");
         Ok(())
     }
 
-    /// 🪄 AUTO-HEAL: Recursively hunts for any missing asset (config, tokenizer, etc.) on Hugging Face.
-    pub async fn fetch_asset_auto_heal(repo_id: &str, dest_dir: &std::path::Path, asset_name: &str) -> Result<(), String> {
+    pub async fn fetch_asset_auto_heal(
+        repo_id: &str,
+        dest_dir: &Path,
+        asset_name: &str,
+    ) -> Result<(), String> {
         let asset_path = dest_dir.join(asset_name);
-        if asset_path.exists() { return Ok(()); }
+        if asset_path.exists() {
+            return Ok(());
+        }
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
-            .map_err(|e| e.to_string())?;
-        let _model_name = repo_id.split('/').next_back().unwrap_or(repo_id);
-        
-        // 🚀 SMART FALLBACK LIST: Try repo and stripped format dynamically without hardcoded mirror prefix creators
-        let mut repo_ids_to_try = vec![repo_id.to_string()];
+            .map_err(|error| error.to_string())?;
+        let mut repo_ids = vec![repo_id.to_string()];
         let stripped = repo_id.replace("-GGUF", "").replace("-gguf", "");
         if stripped != repo_id {
-            repo_ids_to_try.push(stripped);
+            repo_ids.push(stripped);
         }
 
-        for id in repo_ids_to_try {
-            let url = format!("https://huggingface.co/{}/resolve/main/{}", id, asset_name);
-            let response = match client.get(&url).send().await {
-                Ok(res) => res,
-                Err(_) => continue, // Skip if request timed out or failed
+        for id in repo_ids {
+            let url = format!("https://huggingface.co/{id}/resolve/main/{asset_name}");
+            let Ok(response) = client.get(&url).send().await else {
+                continue;
             };
-
-            // ✅ If we get success, we recover. 
-            if response.status().is_success() {
-                let mut file = tokio::fs::File::create(&asset_path).await.map_err(|e: std::io::Error| e.to_string())?;
-                let mut stream = response.bytes_stream();
-                while let Some(item) = stream.next().await {
-                    let chunk = item.map_err(|e: reqwest::Error| e.to_string())?;
-                    file.write_all(&chunk).await.map_err(|e: std::io::Error| e.to_string())?;
-                }
-                println!("🪄 [AUTO-HEAL] Recovered '{}' from public repository: {}", asset_name, id);
-                return Ok(());
-            } else if response.status() == reqwest::StatusCode::UNAUTHORIZED || response.status() == reqwest::StatusCode::FORBIDDEN {
-                println!("🛡️ [AUTO-HEAL] Gated repo detected ({}). Skipping...", id);
+            if !response.status().is_success() {
                 continue;
             }
+
+            let mut file = tokio::fs::File::create(&asset_path)
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut stream = response.bytes_stream();
+            while let Some(item) = stream.next().await {
+                let chunk = item.map_err(|error| error.to_string())?;
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            return Ok(());
         }
-        
-        println!("⚠️ [AUTO-HEAL] Optional asset '{}' not found. Continuing safely.", asset_name);
+
         Ok(())
     }
 
@@ -260,33 +342,42 @@ impl ModelDownloader {
         assets: Vec<crate::models::registry::ModelAsset>,
         manifest: Option<ModelManifest>,
         tx: mpsc::Sender<DownloadEvent>,
-        abort: Arc<AtomicBool>
+        abort: Arc<AtomicBool>,
     ) -> Result<PathBuf, String> {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async { Self::download_gguf_async(category, repo_id, download_url, filename, assets, manifest, tx, abort).await })
+        let runtime = tokio::runtime::Runtime::new().map_err(|error| error.to_string())?;
+        runtime.block_on(Self::download_gguf_async(
+            category,
+            repo_id,
+            download_url,
+            filename,
+            assets,
+            manifest,
+            tx,
+            abort,
+        ))
     }
 
     pub fn purge_model(category: &str, repo_id: &str) -> Result<(), String> {
-        let model_name = repo_id.split('/').next_back().unwrap_or(repo_id);
-        let path = Self::get_models_dir().join(category).join(model_name);
-        if !path.exists() { return Err("Model directory not found".to_string()); }
-        for attempt in 1..=3 {
-            match std::fs::remove_dir_all(&path) {
-                Ok(_) => return Ok(()),
-                Err(_e) => { std::thread::sleep(std::time::Duration::from_millis(500 * attempt as u64)); }
-            }
+        let path = Self::model_dir(category, repo_id);
+        if !path.exists() {
+            return Err("Model directory not found".to_string());
         }
-        Err("Purge failed after 3 attempts.".to_string())
+        std::fs::remove_dir_all(path).map_err(|error| error.to_string())
     }
 
     pub fn cleanup_partial_download(category: &str, repo_id: &str) -> Result<(), String> {
-        let model_name = repo_id.split('/').next_back().unwrap_or(repo_id);
-        let blobs_path = Self::get_models_dir().join(category).join(model_name).join("blobs");
-        if let Ok(entries) = std::fs::read_dir(&blobs_path) {
+        let path = Self::model_dir(category, repo_id);
+        if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
-                let path = entry.path();
-                let ext = path.extension().and_then(|s| s.to_str());
-                if ext == Some("part") || ext == Some("lock") { let _ = std::fs::remove_file(path); }
+                let file_path = entry.path();
+                let is_partial = file_path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext == "part" || ext == "lock")
+                    .unwrap_or(false);
+                if is_partial {
+                    let _ = std::fs::remove_file(file_path);
+                }
             }
         }
         Ok(())
