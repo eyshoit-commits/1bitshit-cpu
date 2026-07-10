@@ -1,2 +1,0 @@
-// Calendar
-{ "mcp_servers": { "google-calendar": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-google-calendar"] } } }
