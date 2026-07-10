@@ -1257,27 +1257,10 @@ impl DashboardEngine {
                                 state.Core_engine.is_loaded.store(true, std::sync::atomic::Ordering::SeqCst);
                                 Ok(())
                             }
-                            Err(e) => {
-                                // ⚠️ NATIVE FALLBACK: Only for standard models (Bit-depth >= 2.0)!
-                                // BitNet MUST NOT use RuntimeA (Candle) as it will crash with tensor errors.
-                                if runtime == cluaiz_shared::BackendType::RuntimeB
-                                    && model.manifest.bit_depth >= 2.0
-                                {
-                                    let path_inner = std::path::PathBuf::from(path_str);
-                                    handle
-                                        .block_on(engines::CoreRouter::load_model(
-                                            path_inner,
-                                            cluaiz_shared::BackendType::RuntimeA
-                                        ))
-                                        .map(|router| {
-                                            let mut lock = state.Core_engine.router.blocking_lock();
-                                            *lock = router;
-                                            state.Core_engine.is_loaded.store(true, std::sync::atomic::Ordering::SeqCst);
-                                        })
-                                } else {
-                                    Err(e)
-                                }
-                            }
+                            // Never retry GGUF through RuntimeA: RuntimeA is ONNX and
+                            // would only replace the useful Llama error with a bogus
+                            // protobuf parsing failure.
+                            Err(e) => Err(e),
                         }
                     });
 
