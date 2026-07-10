@@ -1,15 +1,14 @@
 use color_eyre::Result;
 use colored::Colorize;
-use engines::ModelRecommendation;
+use crossterm::event::{self, Event, KeyCode};
+use engines::{DownloadEvent, ModelRecommendation};
 use inquire::{
     ui::{Attributes, Color as InqColor, RenderConfig, Styled},
-    Select, Confirm,
+    Confirm, Select,
 };
-use tokio::sync::mpsc;
-use engines::DownloadEvent;
-use crossterm::event::{self, Event, KeyCode};
-use std::time::Duration;
 use std::io::{stdout, Write};
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 pub fn show_details(
     _idx: usize,
@@ -18,89 +17,8 @@ pub fn show_details(
     breadcrumb: &str,
     tx: &mpsc::UnboundedSender<DownloadEvent>,
 ) -> Result<Option<String>> {
-    let m = &rec.manifest;
-    let mut lines_printed = 0;
-
-    let vram_str = if m.is_cloud_api {
-        "CLOUD".to_string()
-    } else {
-        format!("{:.2} GB", m.ram_required_gb)
-    };
-
-    let size_str = if m.is_cloud_api {
-        "N/A".to_string()
-    } else {
-        format!("{:.2} GB", m.download_size_gb)
-    };
-
-    let status_str = rec.status.to_uppercase();
-    let status_col = match rec.status.as_str() {
-        "Optimal" => colored::Color::Green,
-        "Average" => colored::Color::Yellow,
-        "Heavy" => colored::Color::Red,
-        "Cloud" => colored::Color::BrightBlue,
-        _ => colored::Color::BrightBlack,
-    };
-
-    let print_row = |label: &str, val: colored::ColoredString, lines: &mut i32| {
-        println!("{}   {:<13} {}", "│".cyan(), label.bright_black(), val);
-        *lines += 1;
-    };
-
-    // ── 🧭 NAVIGATION HISTORY LOG ──
-    println!("{} ❯ {}", breadcrumb, m.name.dimmed());
-    lines_printed += 1;
-
-    // print_row("ID:", m.id.white(), &mut lines_printed); // Removed per USER request
-    print_row("ARCH:", m.architecture.white(), &mut lines_printed);
-    print_row("PARAMS:", m.parameters.cyan(), &mut lines_printed);
-    print_row("TRAINING:", m.training_tokens.white(), &mut lines_printed);
-    print_row("CONTEXT:", m.context_window.white(), &mut lines_printed);
-    print_row("VRAM/RAM:", vram_str.yellow(), &mut lines_printed);
-    print_row("DISK SIZE:", size_str.white(), &mut lines_printed);
-    print_row(
-        "STATUS:",
-        status_str.color(status_col).bold(),
-        &mut lines_printed,
-    );
-
-    println!("{}", "│".cyan());
-    lines_printed += 1;
-
-    let desc_title = " Core DESCRIPTION ";
-    let mid_line = format!("├─{}────────────────────────────────────", desc_title);
-    println!("{}", mid_line.cyan());
-    lines_printed += 1;
-
-    let desc_words: Vec<&str> = m.description.split_whitespace().collect();
-    let mut current_line = String::new();
-
-    for word in desc_words {
-        if current_line.len() + word.len() > 64 {
-            println!("{} {}", "│".cyan(), current_line.white());
-            lines_printed += 1;
-            current_line.clear();
-        }
-        if !current_line.is_empty() {
-            current_line.push(' ');
-        }
-        current_line.push_str(word);
-    }
-    if !current_line.is_empty() {
-        println!("{} {}", "│".cyan(), current_line.white());
-        lines_printed += 1;
-    }
-
-    println!(
-        "{}",
-        "└───────────────────────────────────────────────────────────────".cyan()
-    );
-    println!();
-    lines_printed += 2;
-
     let config = RenderConfig::default()
         .with_prompt_prefix(Styled::new(""))
-        // ── 🛡️ NO GHOST RECORDS: Disable answered styling ──
         .with_answered_prompt_prefix(Styled::new(""))
         .with_selected_option(None)
         .with_highlighted_option_prefix(
@@ -110,168 +28,176 @@ pub fn show_details(
         );
 
     loop {
+        print_model_details(rec, breadcrumb);
+
         let mut options = Vec::new();
-        let mut back_btn_idx = 0;
-
-        if !rec.is_cached {
-            options.push("📥  INITIATE DOWNLOAD".to_string());
-            back_btn_idx = 1;
-        } else if rec.manifest.category != "embedding" {
+        if rec.is_cached && rec.manifest.category != "embedding" {
             options.push("▶  LOAD / SET ACTIVE".to_string());
-            back_btn_idx = 1;
+        } else if !rec.is_cached {
+            options.push("📥  INITIATE DOWNLOAD".to_string());
         }
-
         options.push("↩  BACK".to_string());
-
         if rec.is_cached {
-            options.push(format!("{}", "🗑️  DELETE MODEL".red().bold()));
+            options.push("🗑️  DELETE MODEL".red().bold().to_string());
         }
 
-        let ans = Select::new("", options.clone())
+        let choice = match Select::new("", options)
             .with_render_config(config)
-            .with_starting_cursor(back_btn_idx)
+            .with_starting_cursor(0)
             .with_formatter(&|_| String::new())
-            .prompt();
+            .prompt()
+        {
+            Ok(choice) => choice,
+            Err(_) => return Ok(None),
+        };
 
-        match ans {
-            Ok(choice) => {
-                if choice.contains("INITIATE") {
-                    // ── 📥 INTERNAL DOWNLOAD BLOCK ──
-                    let m = &rec.manifest;
-                    let mid = m.id.clone();
-                    let dl_url = m.download_url.clone();
-                    let filename = m.huggingface_filename.clone();
-                    let tx_clone = tx.clone();
+        if choice.contains("LOAD / SET ACTIVE") {
+            return Ok(Some("LOAD".to_string()));
+        }
 
-                    let assets = m.assets.clone();
-                    let manifest = Some(m.clone());
-                    let category = m.category.clone();
-                    let repo_id = m.id.clone();
-                    let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                    let abort_clone = abort.clone();
-
-                    let (local_tx, mut local_rx) = tokio::sync::mpsc::channel(256);
-
-                    tokio::spawn(async move {
-                        let _ = engines::ModelDownloader::download_gguf_async(
-                            &category, &repo_id, &dl_url, &filename, assets, manifest, local_tx, abort_clone
-                        ).await;
-                        let _ = tx_clone.send(DownloadEvent::Complete(mid));
-                    });
-
-                    let start = std::time::Instant::now();
-                    println!();
-
-                    let mut aborted = false;
-                    loop {
-                        // 1. Check for cancellation input
-                        if event::poll(Duration::from_millis(50))? {
-                            if let Event::Key(key) = event::read()? {
-                                if key.code == KeyCode::Esc || key.code == KeyCode::Char('q') {
-                                    println!();
-                                    let stop = Confirm::new("⚠️  Abort download and purge partial files?")
-                                        .with_default(false)
-                                        .with_render_config(config)
-                                        .prompt();
-                                    
-                                    if let Ok(true) = stop {
-                                        abort.store(true, std::sync::atomic::Ordering::SeqCst);
-                                        aborted = true;
-                                        break;
-                                    } else {
-                                        // Clear the confirm prompt and the added newline line (2 lines total)
-                                        print!("\x1B[1A\x1B[2K\x1B[1A\r");
-                                        let _ = stdout().flush();
-                                    }
-                                }
-                            }
-                        }
-
-                        // 2. Check for download progress
-                        match local_rx.try_recv() {
-                            Ok(event) => {
-                                if let DownloadEvent::Progress(_prog, current, total, speed, _eta) = event {
-                                    let current_mb = current as f64 / 1_048_576.0;
-                                    let total_mb = total as f64 / 1_048_576.0;
-                                    let speed_mb = speed / 1_048_576.0;
-                                    let elapsed_secs = start.elapsed().as_secs();
-                                    let time_str = format!("[{:02}:{:02}]", elapsed_secs / 60, elapsed_secs % 60);
-
-                                    let bar_width: usize = 40;
-                                    let filled = if total > 0 { ((current as f64 / total as f64) * bar_width as f64) as usize } else { 0 };
-                                    let empty = bar_width.saturating_sub(filled);
-                                    let bar = format!("{}{}", "█".repeat(filled).cyan(), "░".repeat(empty).bright_black());
-
-                                    print!("\x1B[2K\r  {} {} {} {:.2} / {:.2} MB | {:.2} MB/s", 
-                                        time_str.bright_black(), 
-                                        "DOWNLOADING".cyan().bold(),
-                                        bar, 
-                                        current_mb, total_mb, speed_mb
-                                    );
-                                    let _ = stdout().flush();
-                                }
-                            }
-                            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
-                            _ => {}
-                        }
-                    }
-
-                    if !aborted {
-                        println!("\n\n  {} {}", "✔".green(), "Core matrix materialized locally.".white().bold());
-                        std::thread::sleep(std::time::Duration::from_millis(1500));
-                        rec.is_cached = true;
-                    } else {
-                        println!("\n\n  {} {}", "❌".red(), "Download aborted by user.".red().bold());
-                        std::thread::sleep(std::time::Duration::from_millis(1200));
-                    }
-                    
-                    // Cleanup progress lines (2 status + 1 newline + 2 padding = 5)
-                    for _ in 0..5 { print!("\x1B[1A\x1B[2K\r"); }
-                    let _ = stdout().flush();
-
-                } else if choice.contains("LOAD / SET ACTIVE") {
-                    for _ in 0..lines_printed + 3 {
-                        print!("\x1B[1A\x1B[2K\r");
-                    }
-                    let _ = stdout().flush();
+        if choice.contains("INITIATE DOWNLOAD") {
+            match download_model(rec, tx, config)? {
+                Some(path) => {
+                    rec.is_cached = true;
+                    rec.manifest.local_path = Some(path.to_string_lossy().to_string());
+                    println!("\n  {} Download complete: {}", "✅".green(), path.display());
+                    println!("  {} Loading the downloaded model now...", "⚙️".yellow());
                     return Ok(Some("LOAD".to_string()));
-                } else if choice.contains("DELETE") {
-                    let confirm =
-                        inquire::Confirm::new("⚠️  Are you sure you want to delete this model?")
-                            .with_default(false)
-                            .with_render_config(config)
-                            .prompt();
+                }
+                None => {
+                    println!("\n  {} Download cancelled or failed. Model was not marked as cached.", "❌".red());
+                    std::thread::sleep(Duration::from_millis(1200));
+                    continue;
+                }
+            }
+        }
 
-                    match confirm {
-                        Ok(true) => {
-                            let _ = engines::ModelDownloader::purge_model(&rec.manifest.category, &rec.manifest.id);
-                            rec.is_cached = false;
-                            println!("\n  {} {}", "🗑️".red(), "Model purged from local storage.".bold());
-                            std::thread::sleep(std::time::Duration::from_millis(1200));
-                            for _ in 0..3 { print!("\x1B[1A\x1B[2K\r"); }
-                            let _ = stdout().flush();
-                        }
-                        _ => {
-                            print!("\x1B[1A\x1B[2K\x1B[1A\x1B[2K\r");
-                            let _ = stdout().flush();
-                        }
+        if choice.contains("DELETE") {
+            let confirmed = Confirm::new("Delete this model from ./models/?")
+                .with_default(false)
+                .with_render_config(config)
+                .prompt()
+                .unwrap_or(false);
+            if confirmed {
+                match engines::ModelDownloader::purge_model(
+                    &rec.manifest.category,
+                    &rec.manifest.id,
+                ) {
+                    Ok(()) => {
+                        rec.is_cached = false;
+                        rec.manifest.local_path = None;
+                        println!("  {} Model deleted.", "✅".green());
                     }
-                } else {
-                    // 🔙 BACK Case
-                    for _ in 0..lines_printed + 3 {
-                        print!("\x1B[1A\x1B[2K\r");
-                    }
-                    let _ = stdout().flush();
-                    return Ok(Some("BACK".to_string()));
+                    Err(error) => println!("  {} Delete failed: {}", "❌".red(), error),
                 }
             }
-            Err(_) => {
-                for _ in 0..lines_printed + 1 {
-                    print!("\x1B[1A\x1B[2K\r");
+            continue;
+        }
+
+        return Ok(Some("BACK".to_string()));
+    }
+}
+
+fn print_model_details(rec: &ModelRecommendation, breadcrumb: &str) {
+    let model = &rec.manifest;
+    println!("{} ❯ {}", breadcrumb, model.name.dimmed());
+    println!("{}   {:<13} {}", "│".cyan(), "ID:".bright_black(), model.id.white());
+    println!("{}   {:<13} {}", "│".cyan(), "ARCH:".bright_black(), model.architecture.white());
+    println!("{}   {:<13} {}", "│".cyan(), "PARAMS:".bright_black(), model.parameters.cyan());
+    println!("{}   {:<13} {}", "│".cyan(), "CONTEXT:".bright_black(), model.context_window.white());
+    println!("{}   {:<13} {:.2} GB", "│".cyan(), "VRAM/RAM:".bright_black(), model.ram_required_gb);
+    println!("{}   {:<13} {:.2} GB", "│".cyan(), "DISK SIZE:".bright_black(), model.download_size_gb);
+    println!(
+        "{}   {:<13} {}",
+        "│".cyan(),
+        "STATUS:".bright_black(),
+        if rec.is_cached { "DOWNLOADED".green().bold() } else { rec.status.as_str().yellow() }
+    );
+    println!("{}", "├─ DESCRIPTION ─────────────────────────────────────────────".cyan());
+    println!("{} {}", "│".cyan(), model.description.white());
+    println!("{}\n", "└───────────────────────────────────────────────────────────".cyan());
+}
+
+fn download_model(
+    rec: &ModelRecommendation,
+    tx: &mpsc::UnboundedSender<DownloadEvent>,
+    config: RenderConfig,
+) -> Result<Option<std::path::PathBuf>> {
+    let model = rec.manifest.clone();
+    let event_id = model.id.clone();
+    let tx_clone = tx.clone();
+    let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let abort_worker = abort.clone();
+    let (local_tx, mut local_rx) = tokio::sync::mpsc::channel(256);
+
+    let handle = tokio::spawn(async move {
+        engines::ModelDownloader::download_gguf_async(
+            &model.category,
+            &model.id,
+            &model.download_url,
+            &model.huggingface_filename,
+            model.assets.clone(),
+            Some(model),
+            local_tx,
+            abort_worker,
+        )
+        .await
+    });
+
+    let runtime = tokio::runtime::Handle::current();
+    let result = tokio::task::block_in_place(|| {
+        runtime.block_on(async {
+            loop {
+                if event::poll(Duration::from_millis(50))? {
+                    if let Event::Key(key) = event::read()? {
+                        if key.code == KeyCode::Esc || key.code == KeyCode::Char('q') {
+                            let stop = Confirm::new("Abort download and remove partial file?")
+                                .with_default(false)
+                                .with_render_config(config)
+                                .prompt()
+                                .unwrap_or(false);
+                            if stop {
+                                abort.store(true, std::sync::atomic::Ordering::SeqCst);
+                            }
+                        }
+                    }
                 }
-                let _ = stdout().flush();
-                return Ok(None);
+
+                while let Ok(download_event) = local_rx.try_recv() {
+                    if let DownloadEvent::Progress(_, current, total, speed, _) = download_event {
+                        let percent = if total > 0 {
+                            current as f64 / total as f64 * 100.0
+                        } else {
+                            0.0
+                        };
+                        print!(
+                            "\r  {} {:6.2}%  {:.1}/{:.1} MB  {:.1} MB/s",
+                            "⬇".cyan(),
+                            percent,
+                            current as f64 / 1_048_576.0,
+                            total as f64 / 1_048_576.0,
+                            speed / 1_048_576.0,
+                        );
+                        let _ = stdout().flush();
+                    }
+                }
+
+                if handle.is_finished() {
+                    break handle.await.map_err(|error| color_eyre::eyre::eyre!(error))?;
+                }
             }
+        })
+    });
+
+    match result {
+        Ok(path) => {
+            let _ = tx_clone.send(DownloadEvent::Complete(event_id));
+            Ok(Some(path))
+        }
+        Err(error) => {
+            let _ = tx_clone.send(DownloadEvent::Error(event_id, error.clone()));
+            println!("\n  {} Download failed: {}", "❌".red(), error);
+            Ok(None)
         }
     }
 }
