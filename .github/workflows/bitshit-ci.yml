@@ -11,6 +11,7 @@ on:
       - 'install.sh'
       - 'install.ps1'
       - 'scripts/**'
+      - 'docs/**'
       - '.github/workflows/bitshit-ci.yml'
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - 'install.sh'
       - 'install.ps1'
       - 'scripts/**'
+      - 'docs/**'
       - '.github/workflows/bitshit-ci.yml'
   workflow_dispatch:
 
@@ -127,6 +129,38 @@ jobs:
 
       - name: Validate shell installer syntax
         run: bash -n install.sh
+
+      - name: Validate PowerShell installer syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ./install.ps1),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+
+      - name: Validate installer behavior contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./install.sh --help | grep -q -- '--backend auto|cpu|cuda'
+          grep -q 'BITSHIT_HOME' install.sh
+          grep -q 'BITSHIT_HOME' install.ps1
+          grep -q 'CLUAIZ_LEGACY_HOME' install.sh
+          grep -q 'CLUAIZ_LEGACY_HOME' install.ps1
+          grep -q -- '--no-migrate' install.sh
+          grep -q 'NoMigrate' install.ps1
+          grep -q -- '--no-launch' install.sh
+          grep -q 'NoLaunch' install.ps1
+          grep -q 'install.json' install.sh
+          grep -q 'install.json' install.ps1
+          ! grep -q 'grep -oE.*manifest_url' install.sh
 
       - name: Reject legacy public command regressions
         shell: bash
