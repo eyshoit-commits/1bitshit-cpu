@@ -4,41 +4,85 @@ Last reviewed: 2026-07-11
 
 ## Completed public surfaces
 
-- Primary product name: **1BitShit CPU**
+- Primary product name: **BitShit / 1BitShit CPU**
 - Primary executable and Cargo default binary: `bitshit`
 - Repository and release asset names use `bitshit`
 - Native CPU CI covers Linux x64, Windows x64 and macOS arm64
 - Tagged CLI releases package `bitshit`, not the legacy `cluaiz` executable
 - CI rejects regressions that reintroduce legacy public CLI artifact names
 
-## Compatibility layer still intentionally present
+## Installer contract
+
+The root installers now share one public contract on Linux, macOS and Windows:
+
+- canonical runtime home: `BITSHIT_HOME`, defaulting to `~/.bitshit`
+- internal compatibility variable: `CLUAIZ_HOME=$BITSHIT_HOME`
+- backend selection: `auto`, `cpu` or `cuda`
+- `auto` selects CUDA only when an NVIDIA runtime is detected; otherwise it selects CPU
+- explicit CUDA selection fails when `nvidia-smi` is unavailable
+- non-interactive mode: `--yes` on POSIX and `-Yes` on PowerShell
+- optional migration bypass: `--no-migrate` / `-NoMigrate`
+- optional compatibility alias bypass: `--no-legacy-alias` / `-NoLegacyAlias`
+- optional first-run bypass: `--no-launch` / `-NoLaunch`
+- downloaded CLI, engine, kernel and CUDA-driver URLs must be present in their manifests
+- downloads use temporary `.part` files and reject empty artifacts
+- installation ends with a `bitshit --version` smoke test
+- installation metadata is persisted in `BITSHIT_HOME/install.json`
+
+The POSIX installer parses registry JSON with Python's JSON parser instead of positional `grep` expressions. PowerShell uses `Invoke-RestMethod` and explicit property checks.
+
+## Data migration
+
+Legacy data is imported from `CLUAIZ_LEGACY_HOME`, defaulting to `~/.cluaiz`.
+
+Migration rules:
+
+1. migration is idempotent;
+2. only missing files are copied;
+3. existing BitShit files are never overwritten;
+4. the legacy directory remains intact;
+5. `--no-migrate` / `-NoMigrate` disables import completely.
+
+The former root installer used `~/.1bitshit`. Importing that transitional directory into `~/.bitshit` is still an open compatibility item and must follow the same copy-missing, non-destructive rules.
+
+## Compatibility layer intentionally retained
 
 The following names remain internal compatibility interfaces and must not be renamed blindly:
 
 - Rust crates such as `cluaiz-shared`
 - FFI symbols such as `cluaiz_kernel_*`
-- legacy persisted state under `.cluaiz`
 - dynamic library contracts consumed by existing loaders
+- the optional `cluaiz` command alias
 
-They require a versioned migration because changing them atomically would break existing installations, driver loading and persisted state. Public command and release naming can be migrated independently.
-
-## Installer and data migration work still open
-
-The current root `install.sh` is a registry downloader and still needs to be reconciled with the source-building installers used by the hybrid repository. The remaining installer block is:
-
-1. define one canonical home directory (`BITSHIT_HOME`),
-2. migrate data from `.cluaiz` without overwriting newer BitShit state,
-3. retain an optional `cluaiz` command alias only for compatibility,
-4. support explicit `cpu`, `cuda` and `auto` backend selection,
-5. validate downloaded manifests and fail when platform URLs are absent,
-6. avoid parsing JSON with positional `grep` expressions,
-7. provide a non-interactive mode for CI and server installation,
-8. smoke-test the installed binary and expected engine/kernel locations.
+They require a versioned migration because changing them atomically would break existing installations, driver loading and persisted state. Public command and release naming is migrated independently.
 
 ## CI policy
 
-The current CI intentionally runs Clippy without `-D warnings`. The codebase has existing warning debt, so treating every warning as a hard failure would make the new matrix permanently red before it provides useful platform feedback. Warning cleanup should be handled in bounded packages; once the baseline is clean, CI can promote warnings to errors.
+The installer contract job now validates:
+
+- Bash syntax
+- PowerShell parser errors
+- backend flags
+- canonical and legacy path variables
+- non-interactive and no-launch switches
+- `install.json` persistence
+- removal of positional manifest parsing
+- absence of legacy public release and binary names
+
+Clippy intentionally runs without `-D warnings` while existing warning debt remains. Warning cleanup should be handled in bounded packages; once the baseline is clean, CI can promote warnings to errors.
+
+## Current external blocker
+
+CUDA installation depends on the driver release manifest exposing either:
+
+- `drivers.<platform>-cuda`, or
+- `drivers.<platform>`
+
+The installer now fails clearly when neither key exists. The release pipeline still needs to guarantee those keys and publish matching driver artifacts before CUDA installation can be considered release-complete.
 
 ## Next block
 
-The next implementation block should replace the root registry installer with a deterministic cross-platform installer contract shared by Linux and Windows, including idempotent `.cluaiz` to `.1bitshit` migration and explicit CPU/GPU backend selection.
+1. migrate the transitional `~/.1bitshit` directory into `~/.bitshit` without overwriting newer state;
+2. verify and, if necessary, repair the CLI/engine/kernel/driver release manifests;
+3. add mocked installer integration tests that exercise CPU success, CUDA rejection and missing-manifest failures without downloading production binaries;
+4. inspect remaining user-visible `cluaiz` strings separately from internal ABI names.
