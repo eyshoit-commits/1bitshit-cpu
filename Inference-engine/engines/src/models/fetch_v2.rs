@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tracing::info;
 
-use crate::models::registry::ModelManifest;
+use crate::models::registry::{ModelAsset, ModelManifest};
 
 #[derive(Debug, Clone)]
 pub enum DownloadEvent {
@@ -56,6 +56,28 @@ impl ModelDownloader {
             .join(Self::model_dir_name(model_id))
     }
 
+    fn safe_relative_asset(name: &str) -> Result<PathBuf, String> {
+        let path = Path::new(name);
+        if path.is_absolute() {
+            return Err(format!("Asset path must be relative: {name}"));
+        }
+
+        let mut clean = PathBuf::new();
+        for component in path.components() {
+            match component {
+                Component::Normal(value) => clean.push(value),
+                Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                    return Err(format!("Unsafe asset path rejected: {name}"));
+                }
+            }
+        }
+        if clean.as_os_str().is_empty() {
+            return Err("Asset path is empty".to_string());
+        }
+        Ok(clean)
+    }
+
     pub fn is_model_cached(category: &str, model_id: &str, filename: &str) -> bool {
         Self::get_cached_path(category, model_id, filename).is_some()
     }
@@ -100,7 +122,7 @@ impl ModelDownloader {
         model_id: &str,
         download_url: &str,
         filename: &str,
-        _assets: Vec<crate::models::registry::ModelAsset>,
+        assets: Vec<ModelAsset>,
         manifest: Option<ModelManifest>,
         sender: mpsc::Sender<DownloadEvent>,
         abort: Arc<AtomicBool>,
@@ -138,7 +160,7 @@ impl ModelDownloader {
             download_url,
             &weight_path,
             sender.clone(),
-            abort,
+            abort.clone(),
         )
         .await
         {
@@ -148,12 +170,53 @@ impl ModelDownloader {
             return Err(error);
         }
 
+        for asset in assets {
+            if abort.load(Ordering::SeqCst) {
+                let error = "ABORTED".to_string();
+                let _ = sender
+                    .send(DownloadEvent::Error(model_id.to_string(), error.clone()))
+                    .await;
+                return Err(error);
+            }
+
+            let relative = Self::safe_relative_asset(&asset.name)?;
+            let destination = destination_directory.join(relative);
+            if destination.is_file() {
+                continue;
+            }
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+
+            info!(
+                "[1BitShit Model Store] Downloading companion asset {}",
+                destination.display()
+            );
+            if let Err(error) = Self::download_single_file(
+                &client,
+                &asset.url,
+                &destination,
+                sender.clone(),
+                abort.clone(),
+            )
+            .await
+            {
+                let _ = sender
+                    .send(DownloadEvent::Error(model_id.to_string(), error.clone()))
+                    .await;
+                return Err(format!(
+                    "Companion asset '{}' failed: {}",
+                    asset.name, error
+                ));
+            }
+        }
+
         if let Some(mut model_manifest) = manifest {
             model_manifest.local_path = Some(weight_path.to_string_lossy().to_string());
-            let manifest_path = destination_directory.join("model_manifest.json");
             let json = serde_json::to_string_pretty(&model_manifest)
                 .map_err(|error| error.to_string())?;
-            std::fs::write(manifest_path, json).map_err(|error| error.to_string())?;
+            std::fs::write(destination_directory.join("model_manifest.json"), json)
+                .map_err(|error| error.to_string())?;
             Self::generate_bitshit_dna(
                 &model_manifest,
                 &destination_directory,
@@ -204,10 +267,8 @@ impl ModelDownloader {
         );
         dna.dynamic_attributes
             .insert("category".to_string(), manifest.category.clone());
-        dna.dynamic_attributes.insert(
-            "runtime".to_string(),
-            "1bitshit-cpu".to_string(),
-        );
+        dna.dynamic_attributes
+            .insert("runtime".to_string(), "1bitshit-cpu".to_string());
 
         let is_gguf = weight_path
             .extension()
@@ -256,7 +317,11 @@ impl ModelDownloader {
         if url.trim().is_empty() {
             return Err("Model download URL is empty".to_string());
         }
-        let response = client.get(url).send().await.map_err(|error| error.to_string())?;
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
         if !response.status().is_success() {
             return Err(format!("Download failed for {url}: HTTP {}", response.status()));
         }
@@ -295,10 +360,21 @@ impl ModelDownloader {
                 return Err("ABORTED".to_string());
             }
 
-            let chunk = item.map_err(|error| error.to_string())?;
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
+            let chunk = match item {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    drop(file);
+                    let _ = std::fs::remove_file(&partial);
+                    progress.abandon_with_message("Download failed");
+                    return Err(error.to_string());
+                }
+            };
+            if let Err(error) = file.write_all(&chunk).await {
+                drop(file);
+                let _ = std::fs::remove_file(&partial);
+                progress.abandon_with_message("Write failed");
+                return Err(error.to_string());
+            }
             downloaded += chunk.len() as u64;
             progress.set_position(downloaded);
 
@@ -344,9 +420,15 @@ impl ModelDownloader {
         destination_directory: &Path,
         asset_name: &str,
     ) -> Result<(), String> {
-        let destination = destination_directory.join(asset_name);
+        let relative = Self::safe_relative_asset(asset_name)?;
+        let destination = destination_directory.join(relative);
         if destination.is_file() {
             return Ok(());
+        }
+        if let Some(parent) = destination.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|error| error.to_string())?;
         }
 
         let client = reqwest::Client::builder()
@@ -365,32 +447,19 @@ impl ModelDownloader {
             let url = format!(
                 "https://huggingface.co/{repository}/resolve/main/{asset_name}"
             );
-            let Ok(response) = client.get(&url).send().await else {
-                continue;
-            };
-            if !response.status().is_success() {
-                continue;
+            let (sender, _receiver) = mpsc::channel(1);
+            if Self::download_single_file(
+                &client,
+                &url,
+                &destination,
+                sender,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .is_ok()
+            {
+                return Ok(());
             }
-            let partial = destination.with_extension("part");
-            let mut file = tokio::fs::File::create(&partial)
-                .await
-                .map_err(|error| error.to_string())?;
-            let mut stream = response.bytes_stream();
-            while let Some(item) = stream.next().await {
-                let chunk = item.map_err(|error| error.to_string())?;
-                file.write_all(&chunk)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            }
-            file.flush().await.map_err(|error| error.to_string())?;
-            drop(file);
-            if destination.exists() {
-                let _ = tokio::fs::remove_file(&destination).await;
-            }
-            tokio::fs::rename(partial, destination)
-                .await
-                .map_err(|error| error.to_string())?;
-            return Ok(());
         }
         Ok(())
     }
@@ -400,7 +469,7 @@ impl ModelDownloader {
         model_id: &str,
         download_url: &str,
         filename: &str,
-        assets: Vec<crate::models::registry::ModelAsset>,
+        assets: Vec<ModelAsset>,
         manifest: Option<ModelManifest>,
         sender: mpsc::Sender<DownloadEvent>,
         abort: Arc<AtomicBool>,
