@@ -38,9 +38,9 @@ fi
 
 say "Aktuellen vollständigen Rebrand-Branch laden."
 git fetch full-rebrand "$REBRAND_BRANCH" --prune
-git switch -C full-1bitshit-cpu "full-rebrand/$REBRAND_BRANCH"
+git switch -C full-1bitshit-cpu FETCH_HEAD
 
-say "Vollständigen Workspace prüfen und bauen."
+say "Vollständigen CPU-Workspace prüfen und bauen."
 bash tools/verify-rebrand.sh "$REPO_DIR"
 
 say "Neue Runtime-Struktur anlegen."
@@ -102,9 +102,14 @@ find target/release target/release/deps -maxdepth 1 -type f \
     \( -name 'libonnxruntime*.so*' -o -name 'onnxruntime*.dll' -o -name 'libonnxruntime*.dylib' \) \
     -exec cp -f {} "$RUNTIME_DIR/engine/drivers/" \; 2>/dev/null || true
 
+say "Vorhandene sichtbare Projektmodelle übernehmen, ohne sie zu löschen."
+if [ -d "$REPO_DIR/models" ]; then
+    cp -a "$REPO_DIR/models/." "$RUNTIME_DIR/models/" 2>/dev/null || true
+fi
+
 export BITSHIT_HOME="$RUNTIME_DIR"
 export BITSHIT_ROOT="$RUNTIME_DIR"
-export BITSHIT_MODELS_DIR="$REPO_DIR/models"
+export BITSHIT_MODELS_DIR="$RUNTIME_DIR/models"
 export PATH="$LOCAL_BIN_DIR:$PATH"
 
 say "Migration abgeschlossen."
