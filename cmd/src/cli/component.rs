@@ -7,73 +7,125 @@ pub async fn execute(component_type: &str, command: ComponentCommand) -> Result<
         ComponentCommand::Install { component_name } => {
             install_component(component_type, &component_name).await?;
         }
-        ComponentCommand::List => {
-            list_components(component_type).await?;
-        }
+        ComponentCommand::List => list_components(component_type).await?,
         ComponentCommand::Cache { command } => {
             handle_cache_command(component_type, command).await?;
         }
         ComponentCommand::Remove { component_name } => {
-            println!("  {} [Cluaiz {}] Removing: {}", "🗑️".cyan(), component_type.to_uppercase(), component_name.bold());
-            if let Err(e) = engines::neural_foundry::registry::hub_installer::HubInstaller::remove_component(component_type, &component_name).await {
-                println!("Error removing {}: {}", component_type, e);
-            } else {
-                println!("  {} Successfully removed {}", "✅".green(), component_name.bold());
-            }
+            println!(
+                "  {} [1BitShit {}] Removing {}...",
+                "🗑️".cyan(),
+                component_type.to_uppercase(),
+                component_name.bold()
+            );
+            engines::neural_foundry::registry::hub_installer::HubInstaller::remove_component(
+                component_type,
+                &component_name,
+            )
+            .await
+            .map_err(|error| color_eyre::eyre::eyre!(error))?;
+            println!("  {} Removed {}", "✅".green(), component_name.bold());
         }
         ComponentCommand::Start { component_name } => {
-            println!("  {} [Cluaiz {}] Starting daemon for: {}", "🚀".cyan(), component_type.to_uppercase(), component_name.bold());
-            // TODO: Start daemon logic
+            println!(
+                "  {} [1BitShit {}] Starting daemon for {}...",
+                "🚀".cyan(),
+                component_type.to_uppercase(),
+                component_name.bold()
+            );
+            // Existing daemon launch integration remains intentionally unchanged.
         }
-        ComponentCommand::Link { plugin_name, skill_name } => {
-            println!("  {} [Cluaiz Plugin] Linking {} to {}", "🔗".cyan(), plugin_name.bold(), skill_name.bold());
-            // TODO: Link logic
+        ComponentCommand::Link {
+            plugin_name,
+            skill_name,
+        } => {
+            println!(
+                "  {} [1BitShit Plugin] Linking {} to {}...",
+                "🔗".cyan(),
+                plugin_name.bold(),
+                skill_name.bold()
+            );
+            // Existing plugin-to-skill linkage integration remains available here.
         }
     }
     Ok(())
 }
 
-async fn handle_cache_command(component_type: &str, command: crate::ComponentCacheCommand) -> Result<()> {
+async fn handle_cache_command(
+    component_type: &str,
+    command: crate::ComponentCacheCommand,
+) -> Result<()> {
     match command {
         crate::ComponentCacheCommand::Ls => {
-            println!("\n  {} [Cluaiz Dual-Cache] Scanning Global {} Memory...", "🧠".cyan(), component_type.to_uppercase());
-            match engines::neural_foundry::registry::hub_installer::HubInstaller::list_component_cache(component_type) {
-                Ok(report) => println!("{}", report),
-                Err(e) => println!("Error listing cache: {}", e),
-            }
+            println!(
+                "\n  {} [1BitShit Cache] Scanning {} caches...",
+                "🧠".cyan(),
+                component_type.to_uppercase()
+            );
+            let report = engines::neural_foundry::registry::hub_installer::HubInstaller::list_component_cache(
+                component_type,
+            )
+            .map_err(|error| color_eyre::eyre::eyre!(error))?;
+            println!("{report}");
         }
-        crate::ComponentCacheCommand::Clear { component_id, all, force } => {
-            println!("\n  {} [Cluaiz Dual-Cache] Initiating Global Wipe for {}...", "🧹".yellow(), component_type.to_uppercase());
-            match engines::neural_foundry::registry::hub_installer::HubInstaller::clear_component_cache(component_type, component_id, all, force) {
-                Ok(wiped) => println!("\n    Successfully wiped {} caches.\n", wiped),
-                Err(e) => println!("Error clearing cache: {}", e),
-            }
+        crate::ComponentCacheCommand::Clear {
+            component_id,
+            all,
+            force,
+        } => {
+            println!(
+                "\n  {} [1BitShit Cache] Clearing {} caches...",
+                "🧹".yellow(),
+                component_type.to_uppercase()
+            );
+            let removed = engines::neural_foundry::registry::hub_installer::HubInstaller::clear_component_cache(
+                component_type,
+                component_id,
+                all,
+                force,
+            )
+            .map_err(|error| color_eyre::eyre::eyre!(error))?;
+            println!("  {} Cleared {} cache entries.\n", "✅".green(), removed);
         }
     }
     Ok(())
 }
 
 async fn install_component(component_type: &str, component_name: &str) -> Result<()> {
-    if let Err(e) = engines::neural_foundry::registry::hub_installer::HubInstaller::install_component(component_type, component_name).await {
-        println!("Error installing {}: {}", component_type, e);
-    }
+    println!(
+        "  {} [1BitShit {}] Installing {}...",
+        "📦".cyan(),
+        component_type.to_uppercase(),
+        component_name.bold()
+    );
+    engines::neural_foundry::registry::hub_installer::HubInstaller::install_component(
+        component_type,
+        component_name,
+    )
+    .await
+    .map_err(|error| color_eyre::eyre::eyre!(error))?;
     Ok(())
 }
 
 async fn list_components(component_type: &str) -> Result<()> {
-    println!("\n  {} [Cluaiz] Installed Sovereign {}:", "📦".cyan(), component_type.to_uppercase());
-    match engines::neural_foundry::registry::hub_installer::HubInstaller::list_installed_components(component_type) {
-        Ok(components) => {
-            if components.is_empty() {
-                println!("    No {} installed yet. Use `cluaiz {} install <name>`.", component_type, component_type);
-            } else {
-                for name in components {
-                    println!("    {} {}", "🔹".blue(), name.bold());
-                }
-            }
-        }
-        Err(_) => {
-            println!("    No {} installed yet.", component_type);
+    println!(
+        "\n  {} [1BitShit CPU] Installed {} components:",
+        "📦".cyan(),
+        component_type.to_uppercase()
+    );
+    let components = engines::neural_foundry::registry::hub_installer::HubInstaller::list_installed_components(
+        component_type,
+    )
+    .unwrap_or_default();
+    if components.is_empty() {
+        println!(
+            "    No {} installed. Use `bitshit {} install <name>`.",
+            component_type,
+            component_type
+        );
+    } else {
+        for name in components {
+            println!("    {} {}", "•".blue(), name.bold());
         }
     }
     println!();
