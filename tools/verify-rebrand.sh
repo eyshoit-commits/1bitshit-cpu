@@ -11,14 +11,25 @@ run() { say "===== $1 ====="; shift; "$@" 2>&1 | tee -a "$LOG"; }
 trap 'printf "\nFEHLER in Zeile %s. Vollständiger Bericht: %s\n" "$LINENO" "$LOG" >&2' ERR
 
 run "WORKSPACE METADATA" cargo metadata --no-deps --format-version 1
-run "BITSHIT SHARED" cargo check --manifest-path Inference-engine/engines/cluaiz-shared/Cargo.toml
-run "BITSHIT ONNX" cargo check --manifest-path interface-engines/onnx/Cargo.toml
-run "BITSHIT LLAMA" cargo check --manifest-path interface-engines/llama/Cargo.toml
-run "ENGINE CORE" cargo check --manifest-path Inference-engine/engines/Cargo.toml --all-features
-run "BITSHIT API" cargo check --manifest-path Inference-engine/api/Cargo.toml
-run "BITSHIT CLI" cargo check --manifest-path cmd/Cargo.toml --bin bitshit
-run "RELEASE BUILD" cargo build --release --manifest-path cmd/Cargo.toml --bin bitshit
-run "FULL WORKSPACE" cargo check --workspace --all-targets --all-features
+run "BITSHIT SHARED CHECK" cargo check --manifest-path Inference-engine/engines/cluaiz-shared/Cargo.toml
+run "BITSHIT ONNX CHECK" cargo check --manifest-path interface-engines/onnx/Cargo.toml
+run "BITSHIT LLAMA CHECK" cargo check --manifest-path interface-engines/llama/Cargo.toml
+run "ENGINE CORE CHECK" cargo check --manifest-path Inference-engine/engines/Cargo.toml --all-features
+run "BITSHIT API CHECK" cargo check --manifest-path Inference-engine/api/Cargo.toml
+run "BITSHIT CLI CHECK" cargo check --manifest-path cmd/Cargo.toml --bin bitshit
+run "FULL WORKSPACE CHECK" cargo check --workspace --all-targets --all-features
+
+run "BITSHIT LLAMA RELEASE" cargo build --release --manifest-path interface-engines/llama/Cargo.toml
+run "BITSHIT ONNX RELEASE" cargo build --release --manifest-path interface-engines/onnx/Cargo.toml
+run "ENGINE CORE RELEASE" cargo build --release --manifest-path Inference-engine/engines/Cargo.toml
+run "BITSHIT API RELEASE" cargo build --release --manifest-path Inference-engine/api/Cargo.toml
+run "BITSHIT CLI RELEASE" cargo build --release --manifest-path cmd/Cargo.toml --bin bitshit
+
+say "===== RELEASE ARTIFACT AUDIT ====="
+test -x "$ROOT/target/release/bitshit"
+find "$ROOT/target/release" -maxdepth 2 -type f \
+    \( -name '*bitshit*llama*' -o -name '*bitshit*onnx*' -o -name 'bitshit' -o -name 'bitshit.exe' \) \
+    -print | sort | tee -a "$LOG"
 
 say "===== RUNTIME IDENTITY AUDIT ====="
 if git grep -n -I -E 'Ghost Execution Detected|\[cluaiz\]|cluaiz Main Menu|Starting cluaiz API|\.cluaiz/models' -- ':!docs/**' ':!cmd/src/ui/menu.rs' ':!cmd/src/cli/run.rs' ':!**/THIRD_PARTY_NOTICES.txt' | tee -a "$LOG"; then
