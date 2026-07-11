@@ -1,0 +1,138 @@
+name: BitShit CPU CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'install.sh'
+      - 'install.ps1'
+      - 'scripts/**'
+      - '.github/workflows/bitshit-ci.yml'
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'install.sh'
+      - 'install.ps1'
+      - 'scripts/**'
+      - '.github/workflows/bitshit-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitshit-cpu-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  GGML_CUDA: 'OFF'
+  GGML_HIPBLAS: 'OFF'
+  GGML_METAL: 'OFF'
+  OPENSSL_VENDORED: '1'
+
+jobs:
+  rust-quality:
+    name: Rust quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check BitShit CLI
+        run: cargo check --locked -p cmd --bin bitshit
+
+      - name: Clippy BitShit CLI
+        run: cargo clippy --locked -p cmd --bin bitshit --all-targets -- -D warnings
+
+  native-cpu:
+    name: Native CPU build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-latest
+            artifact: bitshit-linux-x64
+            binary: target/release/bitshit
+          - name: Windows x64
+            os: windows-latest
+            artifact: bitshit-windows-x64
+            binary: target/release/bitshit.exe
+          - name: macOS arm64
+            os: macos-14
+            artifact: bitshit-macos-arm64
+            binary: target/release/bitshit
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libssl-dev libgomp1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build BitShit CPU CLI
+        run: cargo build --locked --release -p cmd --bin bitshit
+
+      - name: Smoke-test version output
+        shell: bash
+        run: '${{ matrix.binary }} --version'
+
+      - name: Upload native binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
+
+  installer-contract:
+    name: Installer contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate shell installer syntax
+        run: bash -n install.sh
+
+      - name: Reject legacy public command regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RInE 'target/(debug|release)/cluaiz(\.exe)?|name: cluaiz CLI|cluaiz-cli-' \
+            .github/workflows README.md install.sh install.ps1 2>/dev/null
+          grep -q 'name = "bitshit"' cmd/Cargo.toml
+          grep -q 'default-run = "bitshit"' cmd/Cargo.toml
