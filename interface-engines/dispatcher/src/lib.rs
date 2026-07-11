@@ -1,46 +1,206 @@
-use anyhow::{Result, anyhow};
-use cluaiz_shared::backend::signature::{KernelSignature, GlobalFeatureRegistry, BackendType};
+use anyhow::{anyhow, Result};
+use cluaiz_shared::backend::signature::{BackendType, GlobalFeatureRegistry, KernelSignature};
+use std::ffi::{c_char, c_void, CStr, CString};
+use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use system_booster::BoosterControl;
-use std::path::PathBuf;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-
 use tokio::sync::mpsc;
 
-fn resolve_active_model_path() -> Option<PathBuf> {
-    let env = cluaiz_shared::environment::EnvironmentManager::current();
-    let local_hub = env.local_dir.clone();
-    let global_hub = env.global_dir.clone();
-    
-    let perm_path = local_hub.join("engine").join("config").join("Permission.json");
-    let perm_str = std::fs::read_to_string(&perm_path).ok()?;
-    let perm_json: serde_json::Value = serde_json::from_str(&perm_str).ok()?;
-    let active_id = perm_json
-        .get("chat_models")?
+const PRODUCT: &str = "1BitShit CPU";
+
+type InstantiateFn = unsafe extern "C" fn(*const c_char, *const c_void) -> *mut c_void;
+type FreeFn = unsafe extern "C" fn(*mut c_void);
+type StreamCallback = extern "C" fn(*const c_char, *mut c_void) -> bool;
+type GenerateStreamFn = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    usize,
+    StreamCallback,
+    *mut c_void,
+) -> i32;
+type InitFn = unsafe extern "C" fn() -> *const c_char;
+type GenerateEmbeddingFn = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    *mut f32,
+    usize,
+    *mut usize,
+) -> i32;
+
+fn sanitized_model_id(id: &str) -> String {
+    id.chars()
+        .map(|character| match character {
+            ':' | '/' | '\\' | ' ' => '-',
+            other => other,
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+fn configured_model_id(kind: &str) -> Option<String> {
+    let environment = cluaiz_shared::environment::EnvironmentManager::current();
+    let permission_path = environment.config_dir().join("Permission.json");
+    let content = std::fs::read_to_string(permission_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get(kind)?
         .get("text")?
-        .as_str()?
-        .replace(':', "-");
-    
-    let categories = ["chat", "embedding", "vision", "audio", "code"];
-    
-    // Check local models root first, then global models root
-    let roots = [local_hub.join("models"), global_hub.join("models")];
-    
-    for models_root in &roots {
-        for category in &categories {
-            let model_dir = models_root.join(category).join(&active_id);
-            if model_dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&model_dir) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if p.extension().and_then(|e| e.to_str()) == Some("gguf") {
-                            return Some(p);
-                        }
-                    }
+        .as_str()
+        .map(str::to_string)
+}
+
+fn find_model_file(model_id: &str, accepted_extensions: &[&str]) -> Option<PathBuf> {
+    let environment = cluaiz_shared::environment::EnvironmentManager::current();
+    let models_root = environment.models_dir();
+    let directory_name = sanitized_model_id(model_id);
+
+    for category in ["chat", "embedding", "vision", "audio", "code", "multimodal"] {
+        let directory = models_root.join(category).join(&directory_name);
+        if let Some(path) = find_weight_in_directory(&directory, accepted_extensions) {
+            return Some(path);
+        }
+    }
+
+    find_weight_recursive(&models_root, &directory_name, accepted_extensions)
+}
+
+fn find_weight_in_directory(directory: &Path, accepted_extensions: &[&str]) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(directory).ok()?;
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .map(str::to_ascii_lowercase)
+                    .map(|extension| accepted_extensions.contains(&extension.as_str()))
+                    .unwrap_or(false)
+        })
+}
+
+fn find_weight_recursive(
+    root: &Path,
+    directory_name: &str,
+    accepted_extensions: &[&str],
+) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.eq_ignore_ascii_case(directory_name))
+            .unwrap_or(false)
+        {
+            if let Some(weight) = find_weight_in_directory(&path, accepted_extensions) {
+                return Some(weight);
+            }
+        }
+        if let Some(weight) = find_weight_recursive(&path, directory_name, accepted_extensions) {
+            return Some(weight);
+        }
+    }
+    None
+}
+
+fn library_extension() -> &'static str {
+    if cfg!(windows) {
+        "dll"
+    } else if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
+    }
+}
+
+fn library_names(kind: &str) -> Vec<String> {
+    let extension = library_extension();
+    if cfg!(windows) {
+        vec![
+            format!("bitshit-{kind}.{extension}"),
+            format!("bitshit_{kind}.{extension}"),
+            format!("cluaiz-{kind}.{extension}"),
+            format!("cluaiz_{kind}.{extension}"),
+        ]
+    } else {
+        vec![
+            format!("bitshit-{kind}.{extension}"),
+            format!("libbitshit_{kind}.{extension}"),
+            format!("libbitshit-{kind}.{extension}"),
+            format!("cluaiz-{kind}.{extension}"),
+            format!("libcluaiz_{kind}.{extension}"),
+            format!("libcluaiz-{kind}.{extension}"),
+        ]
+    }
+}
+
+fn resolve_library(kind: &str) -> Result<PathBuf> {
+    let names = library_names(kind);
+    let environment = cluaiz_shared::environment::EnvironmentManager::current();
+    let installed_dir = environment.engine_dir();
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    for profile in ["release", "debug"] {
+        let target = current_dir.join("target").join(profile);
+        for name in &names {
+            for candidate in [target.join(name), target.join("deps").join(name)] {
+                if candidate.is_file() {
+                    return Ok(candidate);
                 }
             }
         }
     }
-    None
+
+    for name in &names {
+        for candidate in [installed_dir.join(name), installed_dir.join("drivers").join(name)] {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "{} {} library was not found under {} or target/{{release,debug}}",
+        PRODUCT,
+        kind,
+        installed_dir.display()
+    ))
+}
+
+unsafe fn load_symbol<'library, T>(
+    library: &'library libloading::Library,
+    primary: &[u8],
+    legacy: &[u8],
+) -> Result<libloading::Symbol<'library, T>> {
+    library.get(primary).or_else(|_| library.get(legacy)).map_err(|error| {
+        anyhow!(
+            "Required ABI symbol '{}' is missing: {}",
+            String::from_utf8_lossy(primary),
+            error
+        )
+    })
+}
+
+unsafe fn open_library(path: &Path) -> Result<libloading::Library> {
+    #[cfg(windows)]
+    {
+        let flags = 0x00000008;
+        libloading::os::windows::Library::load_with_flags(path, flags)
+            .map(libloading::Library::from)
+            .map_err(|error| anyhow!("Failed to load {}: {}", path.display(), error))
+    }
+    #[cfg(not(windows))]
+    {
+        libloading::Library::new(path)
+            .map_err(|error| anyhow!("Failed to load {}: {}", path.display(), error))
+    }
 }
 
 pub enum EngineResponse {
@@ -50,19 +210,16 @@ pub enum EngineResponse {
 }
 
 #[derive(Clone)]
-pub struct SafeEnginePtr(pub *mut std::ffi::c_void);
+pub struct SafeEnginePtr(pub *mut c_void);
 unsafe impl Send for SafeEnginePtr {}
 unsafe impl Sync for SafeEnginePtr {}
 
-/// 🚦 NeuralDispatcher (The Master Router)
-/// The core router that owns hardware logic and dispatches prompts across Native IPC and HTTP.
 pub struct NeuralDispatcher {
     pub booster_state: BoosterControl,
     pub current_signature: KernelSignature,
-    pub cached_engine: std::sync::Arc<tokio::sync::Mutex<Option<(PathBuf, SafeEnginePtr, std::sync::Arc<libloading::Library>)>>>,
-    /// 🔢 Limits concurrent LLM dispatches to prevent system overload (acts as an inference queue)
+    pub cached_engine:
+        Arc<tokio::sync::Mutex<Option<(PathBuf, SafeEnginePtr, Arc<libloading::Library>)>>>,
     pub inference_semaphore: Arc<tokio::sync::Semaphore>,
-    /// 🛑 Per-instance cancellation flag — set to true to stop the active generation
     pub cancel_flag: Arc<AtomicBool>,
 }
 
@@ -71,365 +228,303 @@ impl NeuralDispatcher {
         Self {
             booster_state,
             current_signature: signature,
-            cached_engine: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
-            // Max 4 concurrent LLM generations — extras wait in queue
+            cached_engine: Arc::new(tokio::sync::Mutex::new(None)),
             inference_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// Primary entry point for real-time token streaming.
-    /// Used by both the FFI Named Pipes (Native Desktop) and HTTP SSE (External).
-    pub async fn dispatch_stream(&self, prompt: &str, skip_brain: bool) -> EngineResponse {
-        // 🚀 Real-time Silicon Probe
+    pub async fn dispatch_stream(&self, prompt: &str, _skip_brain: bool) -> EngineResponse {
         let hardware = cluaiz_shared::hardware::HardwareOrchestrator::probe().silicon_truth;
         let backend = GlobalFeatureRegistry::select_runtime(&self.current_signature, &hardware);
-        
-        tracing::info!("🚦 [Master Router] Routing prompt to backend: {:?}", backend);
-
-        let (tx, rx) = mpsc::channel::<String>(100);
-        let prompt_clone = prompt.to_string();
+        tracing::info!("[1BitShit Dispatcher] Selected backend: {:?}", backend);
 
         match backend {
-            BackendType::RuntimeB | BackendType::RuntimeC | BackendType::RuntimeA => {
-                let cached_engine_lock = self.cached_engine.clone();
-                let semaphore = self.inference_semaphore.clone();
-                let cancel_flag = self.cancel_flag.clone();
-                // Reset cancellation for this new request
-                cancel_flag.store(false, Ordering::Relaxed);
-                tokio::spawn(async move {
-                    // 🔢 Inference Queue: acquire a slot before proceeding (blocks if 4 already running)
-                    let _permit = match semaphore.acquire().await {
-                        Ok(permit) => permit,
-                        Err(_) => {
-                            let _ = tx.send("Error: Inference queue closed.".to_string()).await;
-                            return;
-                        }
-                    };
-                    tracing::info!("🔢 [Dispatcher] Inference slot acquired. Running generation...");
-
-                    let active_path = resolve_active_model_path();
-                    let model_path = match active_path {
-                        Some(ref path) => path.clone(),
-                        None => {
-                            tracing::error!(
-                                "❌ [Dispatcher] No active model configured. \
-                                 Check ~/.cluaiz/engine/config/Permission.json \
-                                 and verify the model directory exists under ~/.cluaiz/models/chat/."
-                            );
-                            let _ = tx.send(
-                                "Error: No active model is configured. \
-                                 Please set a model in Permission.json or via the /models/load API."
-                                    .to_string(),
-                            ).await;
-                            let _ = tx.send("\n[DONE]\n".to_string()).await;
-                            return;
-                        }
-                    };
-
-                    let mut engine_lock = cached_engine_lock.lock().await;
-                    
-                    // Check if we need to load a new model
-                    let mut load_new = true;
-                    if let Some((ref cached_path, ref safe_ptr, ref lib)) = *engine_lock {
-                        if cached_path == &model_path && !safe_ptr.0.is_null() {
-                            load_new = false;
-                        }
-                    }
-
-                    if load_new {
-                        // Free previous engine if it existed
-                        if let Some((_, safe_ptr, ref lib)) = engine_lock.take() {
-                            unsafe {
-                                if let Ok(free_fn) = lib.get::<unsafe extern "C" fn(*mut std::ffi::c_void)>(b"cluaiz_kernel_free") {
-                                    tracing::info!("🗑️ [Dispatcher] Freeing previous model instance");
-                                    free_fn(safe_ptr.0);
-                                }
-                            }
-                        }
-
-                        // Resolve path and load DLL
-                        let target_os = std::env::consts::OS;
-                        let ext = match target_os {
-                            "windows" => "dll",
-                            "macos" => "dylib",
-                            _ => "so",
-                        };
-                        let prefix = if target_os == "windows" { "" } else { "lib" };
-                        let binary_name = format!("{}cluaiz-llama.{}", prefix, ext);
-                        
-                        let binary_path = cluaiz_shared::HardwareGovernor::resolve_interface_path()
-                            .join(&binary_name);
-                            
-                        // 🛡️ Strict FFI Validation Boundary
-                        let marker_path = cluaiz_shared::HardwareGovernor::resolve_interface_path()
-                            .join("cluaiz-llama.ready");
-                            
-                        if !binary_path.exists() || !marker_path.exists() {
-                            tracing::error!("❌ [Dispatcher] FFI Validation Failed: Kernel binary or manifest marker missing at {:?}", binary_path);
-                            let _ = tx.blocking_send("Error: Missing kernel binary or manifest validation failed.".to_string());
-                            let _ = tx.blocking_send("\n[DONE]\n".to_string());
-                            return; // Stop loading logic
-                        }
-
-                        tracing::info!("🔗 [Dispatcher] Loading validated dynamic library {:?}", binary_path);
-
-                        let mut successfully_loaded = false;
-                        unsafe {
-                            #[cfg(windows)]
-                            let lib = {
-                                let flags = 0x00000008; 
-                                libloading::os::windows::Library::load_with_flags(&binary_path, flags).ok().map(libloading::Library::from)
-                            };
-
-                            #[cfg(not(windows))]
-                            let lib = libloading::Library::new(&binary_path).ok();
-
-                            if let Some(library) = lib {
-                                let library_arc = std::sync::Arc::new(library);
-                                
-                                if let Ok(instantiate_fn) = library_arc.get::<unsafe extern "C" fn(*const std::os::raw::c_char, *const std::ffi::c_void) -> *mut std::ffi::c_void>(b"cluaiz_kernel_instantiate") {
-                                    let c_path = std::ffi::CString::new(model_path.to_string_lossy().to_string()).unwrap();
-                                    tracing::info!("🔗 [Dispatcher] Instantiating kernel with model path: {:?}", model_path);
-                                    let engine_ptr = instantiate_fn(c_path.as_ptr() as *const std::os::raw::c_char, std::ptr::null());
-                                    
-                                    if !engine_ptr.is_null() {
-                                        *engine_lock = Some((model_path.clone(), SafeEnginePtr(engine_ptr), library_arc));
-                                        successfully_loaded = true;
-                                    }
-                                }
-                            }
-                        }
-                        if !successfully_loaded {
-                            tracing::error!("❌ [Dispatcher] Failed to load or instantiate LLM engine.");
-                        }
-                    }
-
-                    // Run generation on the cached/loaded engine
-                    let mut generated = false;
-                    if let Some((_, ref safe_ptr, ref lib)) = *engine_lock {
-                        unsafe {
-                            if let Ok(gen_stream_fn) = lib.get::<unsafe extern "C" fn(*mut std::ffi::c_void, *const std::os::raw::c_char, usize, extern "C" fn(*const std::os::raw::c_char, *mut std::ffi::c_void) -> bool, *mut std::ffi::c_void)>(b"cluaiz_kernel_generate_stream") {
-                                let c_prompt = std::ffi::CString::new(prompt_clone).unwrap();
-
-                                // 🛑 CANCELLATION-AWARE CALLBACK
-                                // user_data carries (tx, cancel_flag, buffer) packed as raw ptr.
-                                struct CallbackData {
-                                    tx: tokio::sync::mpsc::Sender<String>,
-                                    cancel_flag: Arc<AtomicBool>,
-                                    buffer: std::sync::Mutex<String>,
-                                }
-
-                                extern "C" fn callback(token_ptr: *const std::os::raw::c_char, user_data: *mut std::ffi::c_void) -> bool {
-                                    let data = unsafe { &*(user_data as *const CallbackData) };
-                                    
-                                    if data.cancel_flag.load(Ordering::Relaxed) {
-                                        tracing::info!("🛑 [Dispatcher] Inference cancelled via cancel_flag.");
-                                        return false;
-                                    }
-                                    
-                                    let token = unsafe { std::ffi::CStr::from_ptr(token_ptr) }.to_string_lossy().into_owned();
-                                    
-                                    // 🚀 Two-Step Discovery: Token Interception Buffer
-                                    let mut should_send = true;
-                                    if let Ok(mut buffer) = data.buffer.lock() {
-                                        buffer.push_str(&token);
-                                        
-                                        // Are we currently inside a trigger generation?
-                                        if let Some(start_idx) = buffer.find("<TRIGGER:") {
-                                            should_send = false; // Hide from UI
-                                            
-                                            // Have we reached the end of the payload?
-                                            if let Some(end_idx) = buffer.find("</TRIGGER>") {
-                                                // Include the length of </TRIGGER> (10 chars)
-                                                let full_trigger = &buffer[start_idx..end_idx + 10];
-                                                tracing::info!("🔍 [Dispatcher] Sovereign Interceptor Complete Payload: {}", full_trigger);
-                                                let _ = data.tx.blocking_send(full_trigger.to_string());
-                                                data.cancel_flag.store(true, Ordering::Relaxed);
-                                                return false; // Abort C-FFI Stream gracefully
-                                            }
-                                        } else {
-                                            // Sliding window for performance if we are not inside a trigger
-                                            if buffer.len() > 100 {
-                                                *buffer = buffer[buffer.len() - 100..].to_string();
-                                            }
-                                        }
-                                    }
-
-                                    if should_send {
-                                        data.tx.blocking_send(token).is_ok()
-                                    } else {
-                                        true
-                                    }
-                                }
-
-                                let callback_data = CallbackData { 
-                                    tx: tx.clone(), 
-                                    cancel_flag: cancel_flag.clone(),
-                                    buffer: std::sync::Mutex::new(String::new()),
-                                };
-                                let tx_ptr = &callback_data as *const CallbackData as *mut std::ffi::c_void;
-                                let engine_raw = safe_ptr.0 as usize;
-                                let prompt_raw = c_prompt.as_ptr() as usize;
-                                let tx_raw = tx_ptr as usize;
-                                let cb_raw = callback as usize;
-                                let gen_raw = *gen_stream_fn as usize;
-
-                                // 🛡️ FFI PANIC BOUNDARY & BLOCKING THREAD POOL
-                                // Offload heavy FFI execution and prevent blocking the async executor.
-                                let result = tokio::task::spawn_blocking(move || {
-                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                        let callback_fn: extern "C" fn(*const std::os::raw::c_char, *mut std::ffi::c_void) -> bool = unsafe { std::mem::transmute(cb_raw) };
-                                        let gen_fn: unsafe extern "C" fn(*mut std::ffi::c_void, *const std::os::raw::c_char, usize, extern "C" fn(*const std::os::raw::c_char, *mut std::ffi::c_void) -> bool, *mut std::ffi::c_void) = unsafe { std::mem::transmute(gen_raw) };
-                                        unsafe {
-                                            gen_fn(engine_raw as *mut _, prompt_raw as *const _, 4096, callback_fn, tx_raw as *mut _);
-                                        }
-                                    }))
-                                }).await.unwrap_or_else(|_| Err(Box::new("Thread join error")));
-
-                                if let Err(panic_payload) = result {
-                                    let msg = panic_payload
-                                        .downcast_ref::<&str>()
-                                        .copied()
-                                        .unwrap_or("unknown FFI panic");
-                                    tracing::error!("💥 [Dispatcher] FFI Panic caught at generate_stream boundary: {}", msg);
-                                    let _ = tx.send(format!("Error: FFI kernel panicked — {}", msg)).await;
-                                }
-
-                                // 🚀 Two-Step Discovery: Final Buffer Check
-                                // If the LLM stopped generation naturally right after emitting the trigger name
-                                // (without a trailing non-alphanumeric character), it won't be caught by the callback loop.
-                                // We check the final buffer state here before sending `[DONE]`.
-                                if !cancel_flag.load(Ordering::Relaxed) {
-                                    let mut intercepted_trigger = None;
-                                    if let Ok(buffer) = callback_data.buffer.lock() {
-                                        if let Some(start_idx) = buffer.find("<TRIGGER:") {
-                                            if let Some(end_idx) = buffer.find("</TRIGGER>") {
-                                                let full_trigger = &buffer[start_idx..end_idx + 10];
-                                                intercepted_trigger = Some(full_trigger.to_string());
-                                                tracing::info!("🔍 [Dispatcher] Two-Step Discovery Complete Payload for: {}", full_trigger);
-                                            } else {
-                                                // Fallback if the model abruptly ended without closing
-                                                let full_trigger = &buffer[start_idx..];
-                                                intercepted_trigger = Some(full_trigger.to_string());
-                                            }
-                                        }
-                                    }
-                                    
-                                    if let Some(trigger_msg) = intercepted_trigger {
-                                        let _ = tx.send(trigger_msg).await;
-                                    }
-                                }
-
-                                generated = true;
-                            }
-                        }
-                    }
-
-                    if !generated {
-                        let _ = tx.send("Error: FFI Kernel not active.".to_string()).await;
-                    }
-
-                    let _ = tx.send("\n[DONE]\n".to_string()).await;
-                });
-                EngineResponse::TokenStream(rx)
-            }
+            BackendType::RuntimeA | BackendType::RuntimeB | BackendType::RuntimeC => {}
             _ => {
-                EngineResponse::Error(format!("Unsupported backend architecture: {:?}", backend))
+                return EngineResponse::Error(format!(
+                    "Unsupported backend architecture: {:?}",
+                    backend
+                ));
             }
         }
+
+        let (sender, receiver) = mpsc::channel::<String>(100);
+        let prompt = prompt.to_string();
+        let cached_engine = self.cached_engine.clone();
+        let semaphore = self.inference_semaphore.clone();
+        let cancel_flag = self.cancel_flag.clone();
+        cancel_flag.store(false, Ordering::Relaxed);
+
+        tokio::spawn(async move {
+            let _permit = match semaphore.acquire().await {
+                Ok(permit) => permit,
+                Err(_) => {
+                    let _ = sender.send("Error: inference queue closed".to_string()).await;
+                    return;
+                }
+            };
+
+            let model_id = match configured_model_id("chat_models") {
+                Some(id) => id,
+                None => {
+                    let _ = sender
+                        .send(
+                            "Error: no active chat model is configured. Use 'bitshit model set-chat <id>'."
+                                .to_string(),
+                        )
+                        .await;
+                    let _ = sender.send("\n[DONE]\n".to_string()).await;
+                    return;
+                }
+            };
+            let model_path = match find_model_file(&model_id, &["gguf", "bin"]) {
+                Some(path) => path,
+                None => {
+                    let _ = sender
+                        .send(format!(
+                            "Error: active model '{}' was not found in the visible model store.",
+                            model_id
+                        ))
+                        .await;
+                    let _ = sender.send("\n[DONE]\n".to_string()).await;
+                    return;
+                }
+            };
+
+            let mut engine_guard = cached_engine.lock().await;
+            let needs_reload = !matches!(
+                &*engine_guard,
+                Some((cached_path, pointer, _))
+                    if cached_path == &model_path && !pointer.0.is_null()
+            );
+
+            if needs_reload {
+                if let Some((_, pointer, library)) = engine_guard.take() {
+                    unsafe {
+                        if let Ok(free) = load_symbol::<FreeFn>(
+                            &library,
+                            b"bitshit_kernel_free",
+                            b"cluaiz_kernel_free",
+                        ) {
+                            free(pointer.0);
+                        }
+                    }
+                }
+
+                let library_path = match resolve_library("llama") {
+                    Ok(path) => path,
+                    Err(error) => {
+                        let _ = sender.send(format!("Error: {error}")).await;
+                        let _ = sender.send("\n[DONE]\n".to_string()).await;
+                        return;
+                    }
+                };
+
+                let loaded = unsafe {
+                    let library = match open_library(&library_path) {
+                        Ok(library) => Arc::new(library),
+                        Err(error) => {
+                            let _ = sender.blocking_send(format!("Error: {error}"));
+                            return;
+                        }
+                    };
+                    let instantiate = match load_symbol::<InstantiateFn>(
+                        &library,
+                        b"bitshit_kernel_instantiate",
+                        b"cluaiz_kernel_instantiate",
+                    ) {
+                        Ok(symbol) => symbol,
+                        Err(error) => {
+                            let _ = sender.blocking_send(format!("Error: {error}"));
+                            return;
+                        }
+                    };
+                    let path = match CString::new(model_path.to_string_lossy().as_bytes()) {
+                        Ok(path) => path,
+                        Err(error) => {
+                            let _ = sender.blocking_send(format!("Error: invalid model path: {error}"));
+                            return;
+                        }
+                    };
+                    let pointer = instantiate(path.as_ptr(), std::ptr::null());
+                    if pointer.is_null() {
+                        let _ = sender.blocking_send(
+                            "Error: Llama kernel returned a null model instance".to_string(),
+                        );
+                        return;
+                    }
+                    (SafeEnginePtr(pointer), library)
+                };
+
+                *engine_guard = Some((model_path.clone(), loaded.0, loaded.1));
+            }
+
+            let (pointer, library) = match &*engine_guard {
+                Some((_, pointer, library)) => (pointer.clone(), library.clone()),
+                None => {
+                    let _ = sender
+                        .send("Error: Llama engine is not active".to_string())
+                        .await;
+                    let _ = sender.send("\n[DONE]\n".to_string()).await;
+                    return;
+                }
+            };
+
+            struct CallbackData {
+                sender: mpsc::Sender<String>,
+                cancel_flag: Arc<AtomicBool>,
+                buffer: std::sync::Mutex<String>,
+            }
+
+            extern "C" fn callback(token: *const c_char, user_data: *mut c_void) -> bool {
+                if token.is_null() || user_data.is_null() {
+                    return false;
+                }
+                let data = unsafe { &*(user_data as *const CallbackData) };
+                if data.cancel_flag.load(Ordering::Relaxed) {
+                    return false;
+                }
+
+                let token = unsafe { CStr::from_ptr(token) }
+                    .to_string_lossy()
+                    .into_owned();
+                let mut visible = true;
+                if let Ok(mut buffer) = data.buffer.lock() {
+                    buffer.push_str(&token);
+                    if let Some(start) = buffer.find("<TRIGGER:") {
+                        visible = false;
+                        if let Some(end) = buffer.find("</TRIGGER>") {
+                            let end = end + "</TRIGGER>".len();
+                            let trigger = buffer[start..end].to_string();
+                            let _ = data.sender.blocking_send(trigger);
+                            data.cancel_flag.store(true, Ordering::Relaxed);
+                            return false;
+                        }
+                    } else if buffer.len() > 256 {
+                        let keep_from = buffer.len().saturating_sub(256);
+                        *buffer = buffer[keep_from..].to_string();
+                    }
+                }
+
+                !visible || data.sender.blocking_send(token).is_ok()
+            }
+
+            let callback_data = CallbackData {
+                sender: sender.clone(),
+                cancel_flag: cancel_flag.clone(),
+                buffer: std::sync::Mutex::new(String::new()),
+            };
+            let prompt = match CString::new(prompt) {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    let _ = sender
+                        .send(format!("Error: invalid prompt encoding: {error}"))
+                        .await;
+                    let _ = sender.send("\n[DONE]\n".to_string()).await;
+                    return;
+                }
+            };
+
+            let generation_result = unsafe {
+                let generate = match load_symbol::<GenerateStreamFn>(
+                    &library,
+                    b"bitshit_kernel_generate_stream",
+                    b"cluaiz_kernel_generate_stream",
+                ) {
+                    Ok(symbol) => symbol,
+                    Err(error) => {
+                        let _ = sender.blocking_send(format!("Error: {error}"));
+                        return;
+                    }
+                };
+                generate(
+                    pointer.0,
+                    prompt.as_ptr(),
+                    4096,
+                    callback,
+                    &callback_data as *const CallbackData as *mut c_void,
+                )
+            };
+
+            if generation_result != 0 && !cancel_flag.load(Ordering::Relaxed) {
+                let _ = sender
+                    .send(format!(
+                        "Error: Llama generation failed with code {}",
+                        generation_result
+                    ))
+                    .await;
+            }
+            let _ = sender.send("\n[DONE]\n".to_string()).await;
+        });
+
+        EngineResponse::TokenStream(receiver)
     }
 
-    /// Legacy blocking call, to be deprecated once all clients shift to `dispatch_stream`.
     pub async fn dispatch_prompt(&self, prompt: &str) -> Result<String> {
-        let mut stream = match self.dispatch_stream(prompt, false).await {
-            EngineResponse::TokenStream(rx) => rx,
-            EngineResponse::Error(e) => return Err(anyhow::anyhow!(e)),
-            EngineResponse::FinalResult(r) => return Ok(r),
+        let mut receiver = match self.dispatch_stream(prompt, false).await {
+            EngineResponse::TokenStream(receiver) => receiver,
+            EngineResponse::FinalResult(result) => return Ok(result),
+            EngineResponse::Error(error) => return Err(anyhow!(error)),
         };
-        
-        let mut final_text = String::new();
-        while let Some(token) = stream.recv().await {
-            if token.trim() == "[DONE]" { break; }
-            final_text.push_str(&token);
+        let mut output = String::new();
+        while let Some(token) = receiver.recv().await {
+            if token.trim() == "[DONE]" {
+                break;
+            }
+            output.push_str(&token);
         }
-        Ok(final_text)
+        Ok(output)
     }
 }
 
-/// 🚥 EmbeddingDispatcher
-/// Routes embedding requests to ONNX dynamically via libloading.
 pub struct EmbeddingDispatcher {
-    active_lib: std::sync::Arc<libloading::Library>,
-    engine_ptr: *mut std::ffi::c_void,
+    active_lib: Arc<libloading::Library>,
+    engine_ptr: *mut c_void,
 }
 
 unsafe impl Send for EmbeddingDispatcher {}
 unsafe impl Sync for EmbeddingDispatcher {}
 
-               impl EmbeddingDispatcher {
+impl EmbeddingDispatcher {
     pub fn new() -> Result<Self> {
-        let target_os = std::env::consts::OS;
-        let ext = match target_os {
-            "windows" => "dll",
-            "macos" => "dylib",
-            _ => "so",
-        };
-        let prefix = if target_os == "windows" { "" } else { "lib" };
-        let binary_name = format!("{}cluaiz-onnx.{}", prefix, ext);
-        
-        // Use persistence or fallback to target/debug
-        let binary_path = cluaiz_shared::HardwareGovernor::resolve_interface_path()
-            .join(&binary_name);
-            
-        // 🛡️ Strict FFI Validation Boundary
-        let marker_path = cluaiz_shared::HardwareGovernor::resolve_interface_path()
-            .join("cluaiz-onnx.ready");
-            
-        if !binary_path.exists() || !marker_path.exists() {
-            return Err(anyhow::anyhow!("FFI Validation Failed: ONNX kernel binary or manifest missing at {:?}", binary_path));
+        let binary_path = resolve_library("onnx")?;
+        if cfg!(windows) {
+            let drivers = cluaiz_shared::environment::EnvironmentManager::current()
+                .engine_dir()
+                .join("drivers");
+            if let Ok(path) = std::env::var("PATH") {
+                std::env::set_var("PATH", format!("{};{}", drivers.display(), path));
+            }
         }
 
         unsafe {
-            #[cfg(windows)]
-            let lib: libloading::Library = {
-                // LOAD_WITH_ALTERED_SEARCH_PATH (0x00000008) forces Windows to search for dependent DLLs
-                // (like onnxruntime_providers_cuda.dll) in the same directory as the kernel DLL being loaded.
-                // GAP A FIX: Inject engine/drivers/ into PATH so it can find onnxruntime.dll
-                let drivers_dir = cluaiz_shared::HardwareGovernor::resolve_interface_path().join("drivers");
-                if let Ok(path) = std::env::var("PATH") {
-                    std::env::set_var("PATH", format!("{};{}", drivers_dir.display(), path));
-                }
-                
-                let flags = 0x00000008; 
-                let win_lib = libloading::os::windows::Library::load_with_flags(&binary_path, flags)
-                    .map_err(|e| anyhow::anyhow!("ONNX Binary Mapping Failed on path {:?}: {}. OS Error: {:?}", binary_path, e, std::io::Error::last_os_error()))?;
-                win_lib.into()
-            };
+            let library = Arc::new(open_library(&binary_path)?);
+            let initialize = load_symbol::<InitFn>(
+                &library,
+                b"bitshit_kernel_init",
+                b"cluaiz_kernel_init",
+            )?;
+            initialize();
 
-            #[cfg(not(windows))]
-            let lib = libloading::Library::new(&binary_path)
-                .map_err(|e| anyhow::anyhow!("ONNX Binary Mapping Failed on path {:?}: {}. OS Error: {:?}", binary_path, e, std::io::Error::last_os_error()))?;
-
-            
-            let init: libloading::Symbol<unsafe extern "C" fn() -> *const std::os::raw::c_char> = lib.get(b"cluaiz_kernel_init")
-                .map_err(|_| anyhow::anyhow!("Invalid ONNX Kernel: 'cluaiz_kernel_init' missing"))?;
-            init();
-
-            let instantiate_fn: libloading::Symbol<unsafe extern "C" fn(*const std::os::raw::c_char, *const std::ffi::c_void) -> *mut std::ffi::c_void> = 
-                lib.get(b"cluaiz_kernel_instantiate")
-                .map_err(|_| anyhow::anyhow!("Invalid ONNX Kernel: 'cluaiz_kernel_instantiate' missing"))?;
-            
-            let c_path = std::ffi::CString::new("default")?;
-            let engine_ptr = instantiate_fn(c_path.as_ptr() as *const std::os::raw::c_char, std::ptr::null());
-            
+            let instantiate = load_symbol::<InstantiateFn>(
+                &library,
+                b"bitshit_kernel_instantiate",
+                b"cluaiz_kernel_instantiate",
+            )?;
+            let configured = configured_model_id("vector_models")
+                .and_then(|id| find_model_file(&id, &["onnx"]))
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "default".to_string());
+            let configured = CString::new(configured)?;
+            let engine_ptr = instantiate(configured.as_ptr(), std::ptr::null());
             if engine_ptr.is_null() {
-                return Err(anyhow::anyhow!("ONNX Kernel Instantiation Failed"));
+                return Err(anyhow!("ONNX kernel instantiation returned null"));
             }
 
-            tracing::info!("✅ [Dispatcher] ONNX Kernel Dynamically Linked.");
+            tracing::info!("[1BitShit Dispatcher] ONNX kernel linked from {}", binary_path.display());
             Ok(Self {
-                active_lib: std::sync::Arc::new(lib),
+                active_lib: library,
                 engine_ptr,
             })
         }
@@ -437,59 +532,88 @@ unsafe impl Sync for EmbeddingDispatcher {}
 
     pub fn dispatch_embedding(&self, text: &str) -> Result<Vec<f32>> {
         use neural_core::interfaces::router_contract::EmbeddingDriver;
-        tracing::info!("🚥 [Dispatcher] Routing embedding request dynamically to ONNX FFI...");
-        self.gen_embedding(text).map_err(|e| anyhow::anyhow!("Embedding Error: {:?}", e))
+        self.gen_embedding(text)
+            .map_err(|error| anyhow!("Embedding error: {:?}", error))
     }
 
-    pub fn dispatch_multimodal(&self, bytes: &[u8], modality: neural_core::interfaces::router_contract::Modality) -> Result<Vec<f32>> {
+    pub fn dispatch_multimodal(
+        &self,
+        bytes: &[u8],
+        modality: neural_core::interfaces::router_contract::Modality,
+    ) -> Result<Vec<f32>> {
         use neural_core::interfaces::router_contract::EmbeddingDriver;
-        self.gen_multimodal_embedding(bytes, modality).map_err(|e| anyhow::anyhow!("Multimodal Error: {:?}", e))
+        self.gen_multimodal_embedding(bytes, modality)
+            .map_err(|error| anyhow!("Multimodal error: {:?}", error))
     }
 }
 
 impl neural_core::interfaces::router_contract::EmbeddingDriver for EmbeddingDispatcher {
-    fn gen_embedding(&self, text: &str) -> Result<Vec<f32>, neural_core::interfaces::router_contract::EngineError> {
+    fn gen_embedding(
+        &self,
+        text: &str,
+    ) -> Result<Vec<f32>, neural_core::interfaces::router_contract::EngineError> {
         unsafe {
-            let gen_emb_fn: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_void, *const std::os::raw::c_char, *mut f32, usize, *mut usize) -> i32> = 
-                match self.active_lib.get(b"cluaiz_kernel_generate_embedding") {
-                    Ok(f) => f,
-                    Err(_) => return Err(neural_core::interfaces::router_contract::EngineError::EmbeddingFailed("Symbol missing".to_string()))
-                };
-            
-            let c_prompt = std::ffi::CString::new(text).map_err(|_| neural_core::interfaces::router_contract::EngineError::EmbeddingFailed("CString conversion failed".to_string()))?;
-            let max_dims = 8192;
-            let mut out_buffer = vec![0.0f32; max_dims];
-            let mut out_len: usize = 0;
-
-            let status = gen_emb_fn(
-                self.engine_ptr, 
-                c_prompt.as_ptr() as *const std::os::raw::c_char, 
-                out_buffer.as_mut_ptr(),
-                max_dims,
-                &mut out_len as *mut usize
+            let generate = load_symbol::<GenerateEmbeddingFn>(
+                &self.active_lib,
+                b"bitshit_kernel_generate_embedding",
+                b"cluaiz_kernel_generate_embedding",
+            )
+            .map_err(|error| {
+                neural_core::interfaces::router_contract::EngineError::EmbeddingFailed(
+                    error.to_string(),
+                )
+            })?;
+            let text = CString::new(text).map_err(|error| {
+                neural_core::interfaces::router_contract::EngineError::EmbeddingFailed(
+                    error.to_string(),
+                )
+            })?;
+            let mut output = vec![0.0_f32; 8192];
+            let mut output_len = 0_usize;
+            let status = generate(
+                self.engine_ptr,
+                text.as_ptr(),
+                output.as_mut_ptr(),
+                output.len(),
+                &mut output_len,
             );
-            
             if status != 0 {
-                return Err(neural_core::interfaces::router_contract::EngineError::EmbeddingFailed(format!("Code: {}", status)));
+                return Err(
+                    neural_core::interfaces::router_contract::EngineError::EmbeddingFailed(
+                        format!("ONNX kernel returned status {status}"),
+                    ),
+                );
             }
-            
-            out_buffer.truncate(out_len);
-            Ok(out_buffer)
+            output.truncate(output_len.min(output.len()));
+            Ok(output)
         }
     }
 
-    fn gen_multimodal_embedding(&self, _bytes: &[u8], _modality: neural_core::interfaces::router_contract::Modality) -> Result<Vec<f32>, neural_core::interfaces::router_contract::EngineError> {
-        Err(neural_core::interfaces::router_contract::EngineError::UnsupportedModality("Multimodal FFI not implemented yet".to_string()))
+    fn gen_multimodal_embedding(
+        &self,
+        _bytes: &[u8],
+        _modality: neural_core::interfaces::router_contract::Modality,
+    ) -> Result<Vec<f32>, neural_core::interfaces::router_contract::EngineError> {
+        Err(
+            neural_core::interfaces::router_contract::EngineError::UnsupportedModality(
+                "Multimodal FFI is not implemented by the current ONNX kernel".to_string(),
+            ),
+        )
     }
 }
 
 impl Drop for EmbeddingDispatcher {
     fn drop(&mut self) {
-        if !self.engine_ptr.is_null() {
-            unsafe {
-                if let Ok(free_fn) = self.active_lib.get::<unsafe extern "C" fn(*mut std::ffi::c_void)>(b"cluaiz_kernel_free") {
-                    free_fn(self.engine_ptr);
-                }
+        if self.engine_ptr.is_null() {
+            return;
+        }
+        unsafe {
+            if let Ok(free) = load_symbol::<FreeFn>(
+                &self.active_lib,
+                b"bitshit_kernel_free",
+                b"cluaiz_kernel_free",
+            ) {
+                free(self.engine_ptr);
             }
         }
     }
