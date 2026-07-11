@@ -7,9 +7,8 @@ use colored::Colorize;
 use engines::models::registry::{CoreRoster, ModelManifest};
 use tokio::sync::mpsc;
 
-/// Runs a local model through the same visible model store and loader used by
-/// `bitshit pull`. No hidden runtime, secondary downloader or legacy IPC path
-/// is involved.
+/// Runs a model through the same canonical store and format-authoritative
+/// router used by the model hub. GGUF/BitNet selects Llama; ONNX selects ONNX.
 pub async fn execute(model_id: &str, interactive: bool) -> Result<()> {
     println!(
         "\n  {} [1BitShit CPU] Resolving '{}'...",
@@ -18,9 +17,8 @@ pub async fn execute(model_id: &str, interactive: bool) -> Result<()> {
     );
 
     let manifest = resolve_manifest(model_id).await?;
-    reject_stale_manifest(&manifest)?;
+    validate_manifest(&manifest)?;
     let model_path = ensure_local_model(&manifest).await?;
-
     if !model_path.is_file() {
         return Err(color_eyre::eyre::eyre!(
             "Model file is missing after synchronization: {}",
@@ -28,26 +26,42 @@ pub async fn execute(model_id: &str, interactive: bool) -> Result<()> {
         ));
     }
 
-    if model_path
+    let format = model_path
         .extension()
         .and_then(|extension| extension.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-        == Some("onnx")
-    {
+        .unwrap_or(&manifest.architecture_type)
+        .to_ascii_lowercase();
+    let chat_capable = manifest.category.eq_ignore_ascii_case("chat")
+        || manifest.category.eq_ignore_ascii_case("code")
+        || format == "gguf"
+        || format == "bin";
+
+    if !chat_capable && format == "onnx" {
         engines::neural_foundry::security::permission_schema::PermissionSchema::set_active_embedding_model(
             manifest.id.clone(),
         );
-    } else {
-        engines::neural_foundry::security::permission_schema::PermissionSchema::set_active_chat_model(
-            manifest.id.clone(),
+        println!(
+            "\n  {} ONNX {} model '{}' is installed and active at {}.",
+            "✅".green(),
+            manifest.category,
+            manifest.id.cyan(),
+            model_path.display()
         );
+        println!(
+            "  {} It is available to embeddings, ingestion, vision/audio helpers and the API.\n",
+            "ℹ️".cyan()
+        );
+        return Ok(());
     }
 
+    engines::neural_foundry::security::permission_schema::PermissionSchema::set_active_chat_model(
+        manifest.id.clone(),
+    );
+
     if interactive {
-        launch_dashboard(manifest, model_path).await
+        launch_dashboard(manifest, model_path, &format).await
     } else {
-        run_batch(model_path).await
+        run_batch(model_path, &format).await
     }
 }
 
@@ -66,28 +80,36 @@ async fn resolve_manifest(model_id: &str) -> Result<ModelManifest> {
         .into_iter()
         .find(|model| model.id.eq_ignore_ascii_case(normalized))
         .ok_or_else(|| color_eyre::eyre::eyre!(
-            "Model '{}' is not present in the local registry. Use a Hugging Face owner/repository ID or run 'bitshit list'.",
+            "Model '{}' is not present in the registry. Use a Hugging Face owner/repository ID or run 'bitshit list'.",
             normalized
         ))
 }
 
-async fn resolve_huggingface_manifest(repository: &str) -> Result<ModelManifest> {
+async fn resolve_huggingface_manifest(repository_id: &str) -> Result<ModelManifest> {
     println!(
         "  {} Scanning Hugging Face repository '{}'...",
         "🔍".cyan(),
-        repository
+        repository_id
     );
-    let variants = engines::models::manager::hf_hub::HuggingFaceHub::list_variants(repository)
+    let variants = engines::models::manager::hf_hub::HuggingFaceHub::list_variants(repository_id)
         .await
         .map_err(|error| color_eyre::eyre::eyre!(error))?;
     let options: Vec<String> = variants
         .iter()
-        .map(|variant| format!("{} ({:.2} GB)", variant.filename, variant.size_gb))
+        .map(|variant| {
+            let format = std::path::Path::new(&variant.filename)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("model")
+                .to_ascii_uppercase();
+            format!("[{}] {} ({:.2} GB)", format, variant.filename, variant.size_gb)
+        })
         .collect();
-    let selection = inquire::Select::new("Select GGUF variant:", options).prompt()?;
+    let selection = inquire::Select::new("Select model variant:", options).prompt()?;
     let filename = selection
-        .split(" (")
-        .next()
+        .split("] ")
+        .nth(1)
+        .and_then(|value| value.split(" (").next())
         .ok_or_else(|| color_eyre::eyre::eyre!("Invalid model selection"))?;
     let size_gb = variants
         .iter()
@@ -96,7 +118,7 @@ async fn resolve_huggingface_manifest(repository: &str) -> Result<ModelManifest>
         .unwrap_or(0.0);
 
     engines::models::manager::hf_hub::HuggingFaceHub::build_manifest(
-        repository,
+        repository_id,
         filename,
         size_gb,
     )
@@ -104,7 +126,7 @@ async fn resolve_huggingface_manifest(repository: &str) -> Result<ModelManifest>
     .map_err(|error| color_eyre::eyre::eyre!(error))
 }
 
-fn reject_stale_manifest(manifest: &ModelManifest) -> Result<()> {
+fn validate_manifest(manifest: &ModelManifest) -> Result<()> {
     let invalid = manifest.id.trim().is_empty()
         || manifest.id.to_ascii_lowercase().contains("unknown")
         || manifest.huggingface_filename.trim().is_empty()
@@ -113,7 +135,7 @@ fn reject_stale_manifest(manifest: &ModelManifest) -> Result<()> {
             .eq_ignore_ascii_case("unknown");
     if invalid {
         return Err(color_eyre::eyre::eyre!(
-            "Refusing incomplete model manifest '{}'. Remove the stale legacy entry and synchronize the model again.",
+            "Refusing incomplete model manifest '{}'. Remove the stale legacy entry and synchronize again.",
             manifest.id
         ));
     }
@@ -130,15 +152,23 @@ async fn ensure_local_model(manifest: &ModelManifest) -> Result<std::path::PathB
         return Ok(path);
     }
 
+    let models_root = cluaiz_shared::environment::EnvironmentManager::current().models_dir();
     println!(
-        "  {} Downloading to ./models/{}/{} ...",
+        "  {} Downloading to {}/{}/{} ...",
         "📥".cyan(),
+        models_root.display(),
         manifest.category,
         manifest.id.replace(':', "-")
     );
+    if !manifest.assets.is_empty() {
+        println!(
+            "  {} {} companion file(s) will be synchronized.",
+            "🧩".cyan(),
+            manifest.assets.len()
+        );
+    }
 
     let (sender, mut receiver) = mpsc::channel(256);
-    let abort = Arc::new(AtomicBool::new(false));
     let download = engines::ModelDownloader::download_gguf_async(
         &manifest.category,
         &manifest.id,
@@ -147,7 +177,7 @@ async fn ensure_local_model(manifest: &ModelManifest) -> Result<std::path::PathB
         manifest.assets.clone(),
         Some(manifest.clone()),
         sender,
-        abort,
+        Arc::new(AtomicBool::new(false)),
     );
     tokio::pin!(download);
 
@@ -159,8 +189,8 @@ async fn ensure_local_model(manifest: &ModelManifest) -> Result<std::path::PathB
                 return Ok(path);
             }
             event = receiver.recv() => {
-                if let Some(engines::DownloadEvent::Progress(_, current, total, speed, _)) = event {
-                    if total > 0 {
+                match event {
+                    Some(engines::DownloadEvent::Progress(_, current, total, speed, _)) if total > 0 => {
                         print!(
                             "\r  {} {:6.2}%  {:.1}/{:.1} MB  {:.1} MB/s",
                             "⬇".cyan(),
@@ -171,6 +201,10 @@ async fn ensure_local_model(manifest: &ModelManifest) -> Result<std::path::PathB
                         );
                         let _ = std::io::stdout().flush();
                     }
+                    Some(engines::DownloadEvent::Error(_, error)) => {
+                        eprintln!("\n  {} Download error: {}", "❌".red(), error);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -180,43 +214,45 @@ async fn ensure_local_model(manifest: &ModelManifest) -> Result<std::path::PathB
 async fn launch_dashboard(
     manifest: ModelManifest,
     model_path: std::path::PathBuf,
+    format: &str,
 ) -> Result<()> {
     println!(
-        "  {} Loading '{}' through the 1BitShit runtime...",
+        "  {} Loading '{}' through the {} runtime...",
         "⚙️".yellow(),
-        manifest.name.bold()
+        manifest.name.bold(),
+        if format == "onnx" { "ONNX" } else { "Llama/GGUF" }
     );
     let mut app = crate::core::app::App::new(Some(manifest.clone()), None)?;
     app.state
         .Core_engine
         .load_model(model_path)
         .await
-        .map_err(|error| color_eyre::eyre::eyre!("Model loading failed: {error}"))?;
+        .map_err(|error| color_eyre::eyre::eyre!(
+            "{} model loading failed: {}",
+            format.to_ascii_uppercase(),
+            error
+        ))?;
     app.state._active_model_id = Some(manifest.id);
     app.state.auto_mount_triggered = true;
     println!("  {} Model is active.\n", "✅".green());
     app.run().await
 }
 
-async fn run_batch(model_path: std::path::PathBuf) -> Result<()> {
+async fn run_batch(model_path: std::path::PathBuf, format: &str) -> Result<()> {
     use cluaiz_shared::UnifiedBackend;
 
-    if model_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-        == Some("onnx")
-    {
-        return Err(color_eyre::eyre::eyre!(
-            "ONNX embedding models do not provide text generation in batch chat mode. They remain available through the API embedding routes."
-        ));
-    }
-
-    println!("  {} Loading batch runtime...", "⚙️".yellow());
+    println!(
+        "  {} Loading {} batch runtime...",
+        "⚙️".yellow(),
+        if format == "onnx" { "ONNX" } else { "Llama/GGUF" }
+    );
     let mut router = engines::CoreRouter::load_model(
         model_path,
-        cluaiz_shared::BackendType::RuntimeB,
+        if format == "onnx" {
+            cluaiz_shared::BackendType::RuntimeA
+        } else {
+            cluaiz_shared::BackendType::RuntimeB
+        },
     )
     .await
     .map_err(|error| color_eyre::eyre::eyre!(error))?;
