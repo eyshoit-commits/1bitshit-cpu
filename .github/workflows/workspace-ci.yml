@@ -1,0 +1,35 @@
+name: 1BitShit CPU Workspace CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libssl-dev libclang-dev
+      - name: Check Llama engine
+        run: cargo check --manifest-path interface-engines/llama/Cargo.toml
+      - name: Check ONNX engine
+        run: cargo check --manifest-path interface-engines/onnx/Cargo.toml
+      - name: Check engine library
+        run: cargo check -p engines --all-features
+      - name: Check API
+        run: cargo check -p cluaiz_api
+      - name: Check bitshit command
+        run: cargo check -p cmd --bin bitshit
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --all-features
