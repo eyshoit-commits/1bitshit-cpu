@@ -13,7 +13,7 @@ path = "src/main.rs"
 engines = { path = "../Inference-engine/engines" }
 cluaiz_shared = { package = "bitshit-shared", path = "../Inference-engine/engines/cluaiz-shared" }
 neural-core = { path = "../interface-engines/neural_core" }
-cluaiz_onnx = { package = "onnx", path = "../interface-engines/onnx" }
+cluaiz_onnx = { package = "bitshit-onnx", path = "../interface-engines/onnx" }
 bitshit_api = { package = "bitshit-api", path = "../Inference-engine/api" }
 ratatui = "0.30.0"
 tachyonfx = "0.7"
