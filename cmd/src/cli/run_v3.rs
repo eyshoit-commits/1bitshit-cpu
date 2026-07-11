@@ -86,7 +86,7 @@ async fn resolve_huggingface_manifest(repository_id: &str) -> Result<ModelManife
 
     let variants = engines::models::manager::hf_hub::HuggingFaceHub::list_variants(repository_id)
         .await
-        .map_err(color_eyre::eyre::eyre)?;
+        .map_err(|error| color_eyre::eyre::eyre!("{error}"))?;
     let options: Vec<String> = variants
         .iter()
         .map(|variant| {
@@ -117,7 +117,7 @@ async fn resolve_huggingface_manifest(repository_id: &str) -> Result<ModelManife
         size_gb,
     )
     .await
-    .map_err(color_eyre::eyre::eyre)
+    .map_err(|error| color_eyre::eyre::eyre!("{error}"))
 }
 
 fn validate_manifest(manifest: &ModelManifest) -> Result<()> {
@@ -170,7 +170,8 @@ async fn ensure_local_model(manifest: &ModelManifest) -> Result<PathBuf> {
     loop {
         tokio::select! {
             result = &mut download => {
-                let path = result.map_err(color_eyre::eyre::eyre)?;
+                let path = result
+                    .map_err(|error| color_eyre::eyre::eyre!("{error}"))?;
                 println!("\n  {} Download complete: {}", "✅".green(), path.display());
                 return Ok(path);
             }
@@ -256,7 +257,7 @@ async fn run_batch(model_path: PathBuf, format: &str) -> Result<()> {
     };
     let mut router = engines::CoreRouter::load_model(model_path, runtime)
         .await
-        .map_err(color_eyre::eyre::eyre)?;
+        .map_err(|error| color_eyre::eyre::eyre!("{error}"))?;
 
     println!(
         "  {} Batch mode ready. Enter one prompt per line. Type 'exit' to stop.",
