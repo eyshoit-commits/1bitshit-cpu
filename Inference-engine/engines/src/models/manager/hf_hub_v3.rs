@@ -39,7 +39,11 @@ impl HuggingFaceHub {
         )
         .await?;
 
-        if manifest.architecture_type.eq_ignore_ascii_case("onnx") {
+        if manifest.architecture_type.eq_ignore_ascii_case("gguf") {
+            let (quantization, bit_depth) = Self::derive_gguf_quantization(filename);
+            manifest.id = format!("{}:gguf:{}", manifest.family, quantization);
+            manifest.bit_depth = bit_depth;
+        } else if manifest.architecture_type.eq_ignore_ascii_case("onnx") {
             Self::append_onnx_runtime_assets(repository_id, filename, &mut manifest).await?;
         }
         Ok(manifest)
@@ -53,6 +57,41 @@ impl HuggingFaceHub {
         usize,
     ), String> {
         base::HuggingFaceHub::fetch_partial_gguf_metadata(url).await
+    }
+
+    fn derive_gguf_quantization(filename: &str) -> (String, f64) {
+        let lower = Path::new(filename)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(filename)
+            .trim_end_matches(".gguf")
+            .to_ascii_lowercase();
+
+        if lower.contains("i2_s") {
+            return ("i2_s".to_string(), 1.58);
+        }
+        if lower.contains("ternary") {
+            return ("ternary".to_string(), 1.58);
+        }
+
+        for token in lower.split(|character| character == '-' || character == '.') {
+            if token.starts_with("tq") {
+                return (token.to_string(), 1.58);
+            }
+            if token == "f16" || token == "fp16" {
+                return ("f16".to_string(), 16.0);
+            }
+            if token == "f32" || token == "fp32" {
+                return ("f32".to_string(), 32.0);
+            }
+            let bytes = token.as_bytes();
+            if bytes.len() >= 2 && bytes[0] == b'q' && bytes[1].is_ascii_digit() {
+                let bit_depth = (bytes[1] - b'0') as f64;
+                return (token.to_string(), bit_depth);
+            }
+        }
+
+        ("gguf".to_string(), 4.0)
     }
 
     fn is_non_primary_gguf_shard(filename: &str) -> bool {
@@ -150,7 +189,6 @@ impl HuggingFaceHub {
             }
 
             manifest.assets.push(ModelAsset {
-                // The ONNX loader expects tokenizer/config files next to model.onnx.
                 name: basename.to_string(),
                 url: format!(
                     "https://huggingface.co/{repository_id}/resolve/main/{repository_path}"
