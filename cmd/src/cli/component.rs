@@ -16,7 +16,7 @@ pub async fn execute(component_type: &str, command: ComponentCommand) -> Result<
                 "  {} [1BitShit {}] Removing {}...",
                 "🗑️".cyan(),
                 component_type.to_uppercase(),
-                component_name.bold()
+                component_name.as_str().bold()
             );
             engines::neural_foundry::registry::hub_installer::HubInstaller::remove_component(
                 component_type,
@@ -24,14 +24,18 @@ pub async fn execute(component_type: &str, command: ComponentCommand) -> Result<
             )
             .await
             .map_err(|error| color_eyre::eyre::eyre!(error))?;
-            println!("  {} Removed {}", "✅".green(), component_name.bold());
+            println!(
+                "  {} Removed {}",
+                "✅".green(),
+                component_name.as_str().bold()
+            );
         }
         ComponentCommand::Start { component_name } => {
             println!(
                 "  {} [1BitShit {}] Starting daemon for {}...",
                 "🚀".cyan(),
                 component_type.to_uppercase(),
-                component_name.bold()
+                component_name.as_str().bold()
             );
             // Existing daemon launch integration remains intentionally unchanged.
         }
@@ -42,8 +46,8 @@ pub async fn execute(component_type: &str, command: ComponentCommand) -> Result<
             println!(
                 "  {} [1BitShit Plugin] Linking {} to {}...",
                 "🔗".cyan(),
-                plugin_name.bold(),
-                skill_name.bold()
+                plugin_name.as_str().bold(),
+                skill_name.as_str().bold()
             );
             // Existing plugin-to-skill linkage integration remains available here.
         }
@@ -125,7 +129,7 @@ async fn list_components(component_type: &str) -> Result<()> {
         );
     } else {
         for name in components {
-            println!("    {} {}", "•".blue(), name.bold());
+            println!("    {} {}", "•".blue(), name.as_str().bold());
         }
     }
     println!();
