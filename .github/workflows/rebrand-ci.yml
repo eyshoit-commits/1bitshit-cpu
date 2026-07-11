@@ -1,0 +1,66 @@
+name: Full 1BitShit CPU Rebrand Verification
+
+on:
+  push:
+    branches:
+      - rebrand/full-1bitshit-cpu
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libssl-dev libclang-dev
+
+      - name: Show workspace members
+        run: cargo metadata --no-deps --format-version 1
+
+      - name: Check shared runtime
+        run: cargo check -p cluaiz-shared
+
+      - name: Check ONNX engine
+        run: cargo check --manifest-path interface-engines/onnx/Cargo.toml
+
+      - name: Check Llama engine
+        run: cargo check --manifest-path interface-engines/llama/Cargo.toml
+
+      - name: Check engines
+        run: cargo check -p engines --all-features
+
+      - name: Check API
+        run: cargo check -p cluaiz_api
+
+      - name: Check command runtime
+        run: cargo check -p cmd --bin bitshit
+
+      - name: Check complete workspace
+        run: cargo check --workspace --all-targets --all-features
+
+      - name: Verify feature trees remain present
+        run: |
+          test -d interface-engines/llama
+          test -d interface-engines/onnx
+          test -f Inference-engine/engines/src/models/entities.rs
+          test -f Inference-engine/engines/src/models/fetch/mod.rs
+          test -f Inference-engine/engines/src/models/manager/mod.rs
+          test -f Inference-engine/engines/src/models/registry/mod.rs
+
+      - name: Audit remaining active legacy branding
+        run: |
+          git grep -n -I -E 'Ghost Execution|\[cluaiz\]|cluaiz Main Menu|Starting cluaiz|\.cluaiz' -- ':!docs/**' ':!**/THIRD_PARTY_NOTICES.txt' || true
