@@ -1,23 +1,22 @@
 [package]
-name = "onnx"
-version = "0.1.0"
-edition = "2021"
-authors = ["Cluaiz Technologies"]
+name = "bitshit-onnx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [lib]
-name = "cluaiz_onnx"
+name = "bitshit_onnx"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# ── Sovereign ONNX Backend (CPU Multimodal Engine) ──
-ort = { version = "2.0.0-rc.12", features = ["copy-dylibs", "download-binaries", "cuda"] } # ONNX Runtime bindings
+ort = { version = "2.0.0-rc.12", features = ["copy-dylibs", "download-binaries", "cuda"] }
 anyhow = "1.0"
 tracing = "0.1"
-cluaiz-shared = { path = "../../Inference-engine/engines/cluaiz-shared" }
+cluaiz-shared = { package = "bitshit-shared", path = "../../Inference-engine/engines/cluaiz-shared" }
 neural-core = { path = "../neural_core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokenizers = { version = "0.15", default-features = false, features = ["onig"] } # HuggingFace Tokenizers
+tokenizers = { version = "0.15", default-features = false, features = ["onig"] }
 image = "0.24"
 ndarray = "0.15"
 tokio = { version = "1.0", features = ["rt"] }
