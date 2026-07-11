@@ -325,7 +325,7 @@ impl NeuralDispatcher {
                     let library = match open_library(&library_path) {
                         Ok(library) => Arc::new(library),
                         Err(error) => {
-                            let _ = sender.blocking_send(format!("Error: {error}"));
+                            let _ = sender.try_send(format!("Error: {error}"));
                             return;
                         }
                     };
@@ -336,20 +336,20 @@ impl NeuralDispatcher {
                     ) {
                         Ok(symbol) => symbol,
                         Err(error) => {
-                            let _ = sender.blocking_send(format!("Error: {error}"));
+                            let _ = sender.try_send(format!("Error: {error}"));
                             return;
                         }
                     };
                     let path = match CString::new(model_path.to_string_lossy().as_bytes()) {
                         Ok(path) => path,
                         Err(error) => {
-                            let _ = sender.blocking_send(format!("Error: invalid model path: {error}"));
+                            let _ = sender.try_send(format!("Error: invalid model path: {error}"));
                             return;
                         }
                     };
                     let pointer = instantiate(path.as_ptr(), std::ptr::null());
                     if pointer.is_null() {
-                        let _ = sender.blocking_send(
+                        let _ = sender.try_send(
                             "Error: Llama kernel returned a null model instance".to_string(),
                         );
                         return;
@@ -407,14 +407,18 @@ impl NeuralDispatcher {
                     }
                 }
 
-                !visible || data.sender.blocking_send(token).is_ok()
+                if visible {
+                    data.sender.blocking_send(token).is_ok()
+                } else {
+                    true
+                }
             }
 
-            let callback_data = CallbackData {
+            let callback_data = Arc::new(CallbackData {
                 sender: sender.clone(),
                 cancel_flag: cancel_flag.clone(),
                 buffer: std::sync::Mutex::new(String::new()),
-            };
+            });
             let prompt = match CString::new(prompt) {
                 Ok(prompt) => prompt,
                 Err(error) => {
@@ -426,36 +430,71 @@ impl NeuralDispatcher {
                 }
             };
 
-            let generation_result = unsafe {
-                let generate = match load_symbol::<GenerateStreamFn>(
+            let generate = unsafe {
+                match load_symbol::<GenerateStreamFn>(
                     &library,
                     b"bitshit_kernel_generate_stream",
                     b"cluaiz_kernel_generate_stream",
                 ) {
-                    Ok(symbol) => symbol,
+                    Ok(symbol) => *symbol,
                     Err(error) => {
-                        let _ = sender.blocking_send(format!("Error: {error}"));
+                        let _ = sender.try_send(format!("Error: {error}"));
                         return;
                     }
+                }
+            };
+            let callback_raw = Arc::into_raw(callback_data.clone()) as usize;
+            let pointer_for_thread = pointer.clone();
+            let library_for_thread = library.clone();
+            let generation_result = tokio::task::spawn_blocking(move || {
+                let _library_guard = library_for_thread;
+                let status = unsafe {
+                    generate(
+                        pointer_for_thread.0,
+                        prompt.as_ptr(),
+                        4096,
+                        callback,
+                        callback_raw as *mut c_void,
+                    )
                 };
-                generate(
-                    pointer.0,
-                    prompt.as_ptr(),
-                    4096,
-                    callback,
-                    &callback_data as *const CallbackData as *mut c_void,
-                )
+                unsafe {
+                    drop(Arc::from_raw(callback_raw as *const CallbackData));
+                }
+                status
+            })
+            .await;
+
+            let generation_status = match generation_result {
+                Ok(status) => status,
+                Err(error) => {
+                    let _ = sender
+                        .send(format!("Error: native generation task failed: {error}"))
+                        .await;
+                    -1
+                }
             };
 
-            if generation_result != 0 && !cancel_flag.load(Ordering::Relaxed) {
+            if !cancel_flag.load(Ordering::Relaxed) {
+                if let Ok(buffer) = callback_data.buffer.lock() {
+                    if let Some(start) = buffer.find("<TRIGGER:") {
+                        let trigger = buffer[start..].to_string();
+                        if !trigger.is_empty() {
+                            let _ = sender.send(trigger).await;
+                        }
+                    }
+                }
+            }
+
+            if generation_status != 0 && !cancel_flag.load(Ordering::Relaxed) {
                 let _ = sender
                     .send(format!(
                         "Error: Llama generation failed with code {}",
-                        generation_result
+                        generation_status
                     ))
                     .await;
             }
             let _ = sender.send("\n[DONE]\n".to_string()).await;
+            drop(engine_guard);
         });
 
         EngineResponse::TokenStream(receiver)
@@ -522,7 +561,10 @@ impl EmbeddingDispatcher {
                 return Err(anyhow!("ONNX kernel instantiation returned null"));
             }
 
-            tracing::info!("[1BitShit Dispatcher] ONNX kernel linked from {}", binary_path.display());
+            tracing::info!(
+                "[1BitShit Dispatcher] ONNX kernel linked from {}",
+                binary_path.display()
+            );
             Ok(Self {
                 active_lib: library,
                 engine_ptr,
@@ -584,7 +626,8 @@ impl neural_core::interfaces::router_contract::EmbeddingDriver for EmbeddingDisp
                     ),
                 );
             }
-            output.truncate(output_len.min(output.len()));
+            let length = output_len.min(output.len());
+            output.truncate(length);
             Ok(output)
         }
     }
