@@ -35,7 +35,6 @@ pub use runtime::execution::sampler::CoreSampler;
 pub use runtime::execution::loader::GGUFLoader;
 
 // 4. Intelligence & Registry
-pub use models::entities::{ChatMessage, ChatRequest, ChatResponse, ChatSession, MessageRole};
 pub use models::registry::{CoreRoster, ModelManifest, ModelRecommendation, ModelAsset};
 pub use models::fetch::{DownloadEvent, ModelDownloader};
 
