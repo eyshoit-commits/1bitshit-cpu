@@ -7,7 +7,7 @@ default-run = "bitshit"
 
 [[bin]]
 name = "bitshit"
-path = "src/main.rs"
+path = "src/bitshit.rs"
 
 [dependencies]
 engines = { path = "../Inference-engine/engines" }
