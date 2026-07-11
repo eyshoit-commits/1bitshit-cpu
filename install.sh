@@ -18,14 +18,16 @@ require() {
 }
 
 json_value() {
-    python3 - "$1" <<'PY'
-import json, sys
-path = sys.argv[1].split('.')
+    python3 -c '
+import json
+import sys
+
+path = sys.argv[1].split(".")
 data = json.load(sys.stdin)
 for part in path:
     data = data[part]
 print(data)
-PY
+' "$1"
 }
 
 download_atomic() {
