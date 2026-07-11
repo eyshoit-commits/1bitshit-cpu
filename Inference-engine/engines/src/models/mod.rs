@@ -5,7 +5,7 @@
 //! same canonical directory.
 
 pub mod entities;
-#[path = "../fetch_v2.rs"]
+#[path = "fetch_v2.rs"]
 pub mod fetch;
 pub mod manager;
 pub mod registry;
