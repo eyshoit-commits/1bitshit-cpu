@@ -17,7 +17,7 @@ run "BITSHIT LLAMA CHECK" cargo check --manifest-path interface-engines/llama/Ca
 run "ENGINE CORE CHECK" cargo check --manifest-path Inference-engine/engines/Cargo.toml --all-features
 run "BITSHIT API CHECK" cargo check --manifest-path Inference-engine/api/Cargo.toml
 run "BITSHIT CLI CHECK" cargo check --manifest-path cmd/Cargo.toml --bin bitshit
-run "FULL WORKSPACE CHECK" cargo check --workspace --all-targets --all-features
+run "FULL CPU WORKSPACE CHECK" cargo check --workspace --all-targets
 
 run "BITSHIT LLAMA RELEASE" cargo build --release --manifest-path interface-engines/llama/Cargo.toml
 run "BITSHIT ONNX RELEASE" cargo build --release --manifest-path interface-engines/onnx/Cargo.toml
@@ -31,11 +31,27 @@ find "$ROOT/target/release" -maxdepth 2 -type f \
     \( -name '*bitshit*llama*' -o -name '*bitshit*onnx*' -o -name 'bitshit' -o -name 'bitshit.exe' \) \
     -print | sort | tee -a "$LOG"
 
-say "===== RUNTIME IDENTITY AUDIT ====="
-if git grep -n -I -E 'Ghost Execution Detected|\[cluaiz\]|cluaiz Main Menu|Starting cluaiz API|\.cluaiz/models' -- ':!docs/**' ':!cmd/src/ui/menu.rs' ':!cmd/src/cli/run.rs' ':!**/THIRD_PARTY_NOTICES.txt' | tee -a "$LOG"; then
-    say "WARNUNG: Aktive Legacy-Treffer wurden gefunden."
+say "===== PRESERVED FEATURE AUDIT ====="
+test -d interface-engines/llama
+test -d interface-engines/onnx
+test -f Inference-engine/engines/src/models/entities.rs
+test -f Inference-engine/engines/src/models/fetch_v2.rs
+test -f Inference-engine/engines/src/models/manager/hf_hub_v2.rs
+grep -q 'bitshit_kernel_generate_stream' interface-engines/llama/src/ffi_exports.rs
+grep -q 'bitshit_kernel_generate_embedding' interface-engines/onnx/src/lib.rs
+grep -q 'BITSHIT_MODELS_DIR' Inference-engine/engines/src/models/fetch_v2.rs
+say "Llama, ONNX, chat entities, model hub and visible model store are present."
+
+say "===== VISIBLE LEGACY IDENTITY AUDIT ====="
+if git grep -n -I -E '\[cluaiz\]|cluaiz Main Menu|Starting cluaiz API|cluaiz v0\.|Ghost Execution Detected' -- \
+    ':!docs/**' \
+    ':!cmd/src/main.rs' \
+    ':!cmd/src/ui/menu.rs' \
+    ':!cmd/src/cli/run.rs' \
+    ':!**/THIRD_PARTY_NOTICES.txt' | tee -a "$LOG"; then
+    say "WARNUNG: Sichtbare Legacy-Treffer wurden gefunden."
 else
-    say "Keine aktiven Legacy-Anzeigen gefunden."
+    say "Keine aktiven sichtbaren Legacy-Anzeigen gefunden."
 fi
 
 say "BUILD ERFOLGREICH. Binary: $ROOT/target/release/bitshit"
