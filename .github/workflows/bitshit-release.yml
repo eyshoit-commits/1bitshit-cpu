@@ -1,0 +1,109 @@
+name: BitShit CLI Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag or channel
+        required: true
+        default: dev-release
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  GGML_CUDA: 'OFF'
+  GGML_HIPBLAS: 'OFF'
+  GGML_METAL: 'OFF'
+  OPENSSL_VENDORED: '1'
+
+jobs:
+  build-cli:
+    name: Build BitShit CLI (${{ matrix.suffix }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: linux-x64
+            binary: target/release/bitshit
+            archive: bitshit-linux-x64.tar.gz
+          - os: windows-latest
+            suffix: windows-x64
+            binary: target/release/bitshit.exe
+            archive: bitshit-windows-x64.zip
+          - os: macos-14
+            suffix: macos-arm64
+            binary: target/release/bitshit
+            archive: bitshit-macos-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libssl-dev libgomp1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --locked --release -p cmd --bin bitshit
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [[ '${{ github.event_name }}' == 'workflow_dispatch' ]]; then
+            version='${{ inputs.tag_name }}'
+          else
+            version='${{ github.ref_name }}'
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          stage="bitshit-${{ steps.version.outputs.version }}-${{ matrix.suffix }}"
+          mkdir -p "$stage"
+          cp '${{ matrix.binary }}' "$stage/bitshit"
+          cp README.md LICENSE "$stage/"
+          tar -czf '${{ matrix.archive }}' "$stage"
+
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = 'bitshit-${{ steps.version.outputs.version }}-${{ matrix.suffix }}'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item '${{ matrix.binary }}' "$stage/bitshit.exe"
+          Copy-Item README.md,LICENSE $stage
+          Compress-Archive -Path $stage -DestinationPath '${{ matrix.archive }}' -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitshit-cli-${{ matrix.suffix }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish tagged release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.archive }}
