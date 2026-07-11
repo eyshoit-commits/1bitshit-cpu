@@ -14,7 +14,7 @@ engines = { path = "../Inference-engine/engines" }
 cluaiz_shared = { package = "bitshit-shared", path = "../Inference-engine/engines/cluaiz-shared" }
 neural-core = { path = "../interface-engines/neural_core" }
 cluaiz_onnx = { package = "bitshit-onnx", path = "../interface-engines/onnx" }
-bitshit_api = { package = "bitshit-api", path = "../Inference-engine/api" }
+cluaiz_api = { package = "bitshit-api", path = "../Inference-engine/api" }
 ratatui = "0.30.0"
 tachyonfx = "0.7"
 crossterm = { version = "0.28", features = ["event-stream"] }
