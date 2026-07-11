@@ -13,7 +13,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -21,15 +21,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake pkg-config libssl-dev libclang-dev
+      - name: Check shared runtime
+        run: cargo check --manifest-path Inference-engine/engines/cluaiz-shared/Cargo.toml
       - name: Check Llama engine
         run: cargo check --manifest-path interface-engines/llama/Cargo.toml
       - name: Check ONNX engine
         run: cargo check --manifest-path interface-engines/onnx/Cargo.toml
       - name: Check engine library
-        run: cargo check -p engines --all-features
+        run: cargo check --manifest-path Inference-engine/engines/Cargo.toml --all-features
       - name: Check API
-        run: cargo check -p cluaiz_api
+        run: cargo check --manifest-path Inference-engine/api/Cargo.toml
       - name: Check bitshit command
-        run: cargo check -p cmd --bin bitshit
+        run: cargo check --manifest-path cmd/Cargo.toml --bin bitshit
+      - name: Build release command
+        run: cargo build --release --manifest-path cmd/Cargo.toml --bin bitshit
       - name: Check workspace
         run: cargo check --workspace --all-targets --all-features
