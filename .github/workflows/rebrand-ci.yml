@@ -1,0 +1,103 @@
+name: Full 1BitShit CPU Rebrand Verification
+
+on:
+  push:
+    branches:
+      - rebrand/full-1bitshit-cpu
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libssl-dev libclang-dev
+
+      - name: Run complete build audit
+        shell: bash
+        run: |
+          set +e
+          : > rebrand-build.log
+          status=0
+
+          run_check() {
+            echo "" | tee -a rebrand-build.log
+            echo "===== $1 =====" | tee -a rebrand-build.log
+            shift
+            "$@" 2>&1 | tee -a rebrand-build.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then
+              status="$result"
+            fi
+          }
+
+          run_check "CARGO METADATA" cargo metadata --no-deps --format-version 1
+          run_check "BITSHIT SHARED" cargo check -p bitshit-shared
+          run_check "BITSHIT ONNX" cargo check -p bitshit-onnx
+          run_check "BITSHIT LLAMA" cargo check -p bitshit-llama
+          run_check "ENGINES" cargo check -p engines --all-features
+          run_check "BITSHIT API" cargo check -p bitshit-api
+          run_check "BITSHIT COMMAND" cargo check -p cmd --bin bitshit
+          run_check "FULL WORKSPACE" cargo check --workspace --all-targets --all-features
+          run_check "RELEASE LLAMA" cargo build --release -p bitshit-llama
+          run_check "RELEASE ONNX" cargo build --release -p bitshit-onnx
+          run_check "RELEASE ENGINES" cargo build --release -p engines
+          run_check "RELEASE API" cargo build --release -p bitshit-api
+          run_check "RELEASE COMMAND" cargo build --release -p cmd --bin bitshit
+
+          printf '%s\n' "$status" > rebrand-build.status
+          exit 0
+
+      - name: Audit preserved feature trees
+        shell: bash
+        run: |
+          {
+            echo ""
+            echo "===== FEATURE TREE AUDIT ====="
+            test -d interface-engines/llama && echo "Llama tree: present" || echo "Llama tree: MISSING"
+            test -d interface-engines/onnx && echo "ONNX tree: present" || echo "ONNX tree: MISSING"
+            test -f Inference-engine/engines/src/models/entities.rs && echo "Chat entities: present" || echo "Chat entities: MISSING"
+            test -f Inference-engine/engines/src/models/fetch/mod.rs && echo "Downloader: present" || echo "Downloader: MISSING"
+            test -f Inference-engine/engines/src/models/manager/mod.rs && echo "Model manager: present" || echo "Model manager: MISSING"
+            test -f Inference-engine/engines/src/models/registry/mod.rs && echo "Registry: present" || echo "Registry: MISSING"
+            echo ""
+            echo "===== RELEASE ARTIFACT AUDIT ====="
+            find target/release -maxdepth 2 -type f \( -name '*bitshit*llama*' -o -name '*bitshit*onnx*' -o -name 'bitshit' -o -name 'bitshit.exe' \) -print | sort
+            echo ""
+            echo "===== ACTIVE LEGACY NAME AUDIT ====="
+            git grep -n -I -E 'Ghost Execution|\[cluaiz\]|cluaiz Main Menu|Starting cluaiz|\.cluaiz' -- ':!docs/**' ':!cmd/src/ui/menu.rs' ':!cmd/src/cli/run.rs' ':!**/THIRD_PARTY_NOTICES.txt' || true
+          } | tee -a rebrand-build.log
+
+      - name: Upload complete build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-rebrand-build-report
+          path: |
+            rebrand-build.log
+            rebrand-build.status
+          if-no-files-found: error
+
+      - name: Fail when any build check failed
+        shell: bash
+        run: |
+          status="$(cat rebrand-build.status)"
+          if [ "$status" -ne 0 ]; then
+            echo "One or more rebrand build checks failed. See full-rebrand-build-report."
+            exit "$status"
+          fi

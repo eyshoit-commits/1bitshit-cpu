@@ -3,29 +3,57 @@ use colored::Colorize;
 use engines::models::registry::CoreRoster;
 
 pub async fn execute() -> Result<()> {
-    println!("\n  {} [cluaiz] Scanning Vault for Neural Weights...\n", "🔍".cyan());
+    println!(
+        "\n  {} [1BitShit CPU] Scanning the visible model store...\n",
+        "🔍".cyan()
+    );
 
     let roster = CoreRoster::load_roster();
-    
     if roster.is_empty() {
-        println!("     {} No models found in the vault.", "⚠️".yellow());
-        println!("     {} Use 'cluaiz run <id>' to download your first model.\n", "💡".cyan());
+        println!("  {} No model manifests were found.", "⚠️".yellow());
+        println!(
+            "  {} Use 'bitshit run owner/repository' to download a model.\n",
+            "💡".cyan()
+        );
         return Ok(());
     }
 
-    println!("  {:<20} {:<15} {:<10} {:<10}", "ID".bold(), "NAME".bold(), "SIZE".bold(), "ARCH".bold());
-    println!("  {}", "-".repeat(60).dimmed());
+    println!(
+        "  {:<38} {:<12} {:<10} {}",
+        "MODEL ID".bold(),
+        "STATUS".bold(),
+        "RUNTIME".bold(),
+        "LOCAL PATH".bold()
+    );
+    println!("  {}", "-".repeat(110).dimmed());
 
+    let mut local_count = 0usize;
     for model in &roster {
-        println!("  {:<20} {:<15} {:<10} {:<10}", 
-            model.id.green(), 
-            model.name, 
-            format!("{:.1} GB", model.ram_required_gb).dimmed(),
-            model.architecture.dimmed()
+        let local_path = engines::ModelDownloader::get_cached_path(
+            &model.category,
+            &model.id,
+            &model.huggingface_filename,
+        );
+        let (status, path) = if let Some(path) = local_path {
+            local_count += 1;
+            ("LOCAL".green().bold(), path.display().to_string())
+        } else {
+            ("AVAILABLE".bright_black(), "-".to_string())
+        };
+        println!(
+            "  {:<38} {:<12} {:<10} {}",
+            model.id,
+            status,
+            model.architecture_type,
+            path
         );
     }
 
-    println!("\n  {} Total models: {}\n", "📊".blue(), roster.len());
-
+    println!(
+        "\n  {} {} local model(s), {} catalog entry/entries.\n",
+        "📊".blue(),
+        local_count,
+        roster.len()
+    );
     Ok(())
 }

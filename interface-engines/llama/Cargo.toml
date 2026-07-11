@@ -1,19 +1,18 @@
 [package]
-name = "llama"
-version = "0.1.0"
-edition = "2021"
-authors = ["Cluaiz Technologies"]
+name = "bitshit-llama"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 build = "build.rs"
 
 [lib]
-name = "cluaiz_llama"
+name = "bitshit_llama"
 crate-type = ["cdylib", "rlib", "staticlib"]
 
 [dependencies]
-# ── Sovereign LLaMA Backend (Direct C++ Bridge) ──
 anyhow = "1.0"
 tracing = "0.1"
-cluaiz-shared = { path = "../../Inference-engine/engines/cluaiz-shared" }
+cluaiz-shared = { package = "bitshit-shared", path = "../../Inference-engine/engines/cluaiz-shared" }
 tokenizers = "0.22.2"
 libloading = "0.8"
 tokio = { version = "1.37", features = ["full"] }
@@ -28,19 +27,13 @@ bindgen = "0.69"
 cmake = "0.1"
 
 [features]
-# ── Silicon Driver Switches ──
 default = []
-
-# High-Performance GPUs
-cuda = []       # NVIDIA GPU
-metal = []      # Apple GPU
-vulkan = []     # Cross-GPU (Vulkan SDK)
-rocm = []       # AMD GPU (ROCm)
-
-# NPU & Specialized Hardware (Hyper-Silicon)
-openvino = []   # Intel NPU / Integrated GPU
-qnn = []        # Qualcomm Snapdragon NPU (Android)
-sycl = []       # Intel GPU (oneAPI)
-cann = []       # Huawei Ascend NPU
-arm_neon = []   # ARM CPU optimization (Raspberry Pi / Mobile)
-
+cuda = []
+metal = []
+vulkan = []
+rocm = []
+openvino = []
+qnn = []
+sycl = []
+cann = []
+arm_neon = []

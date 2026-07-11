@@ -1,22 +1,8 @@
 use std::path::PathBuf;
 
-
-/// Reads `cluaiz_root` securely via the cluaiz Hardware Governor.
-/// This uses the binary truth (`system_control.bin`) as the ultimate source,
-/// exactly as the cluaiz Architecture intends. Zero custom hardcoding.
-fn read_cluaiz_root() -> Option<PathBuf> {
-    match cluaiz_shared::HardwareGovernor::load_system_control() {
-        Ok(control) => Some(PathBuf::from(control.context.cluaiz_root)),
-        Err(e) => {
-            tracing::error!("❌ [KernelLoader] Failed to read System Truth: {}", e);
-            None
-        }
-    }
-}
-
-/// Kernel Loader
-/// Manages pre-compiled binaries (.dll, .so, .dylib) for different OS/Architecture pairs.
-/// All paths are resolved dynamically via system_control.json. Zero hardcoding.
+/// Resolves native Llama, ONNX and future driver libraries for the active
+/// 1BitShit CPU runtime. New artifact names are authoritative. Legacy names
+/// are accepted only as a non-destructive compatibility fallback.
 pub struct KernelLoader {
     base_dir: PathBuf,
 }
@@ -26,95 +12,102 @@ impl KernelLoader {
         Self { base_dir }
     }
 
-    /// Checks if a kernel binary exists locally for a target OS.
     pub fn exists_for_os(&self, kernel_name: &str, os: &str) -> bool {
-        let path = self.resolve_path_for_os(kernel_name, os);
-        path.exists()
+        self.resolve_path_for_os(kernel_name, os).is_file()
     }
 
-    /// Checks if a kernel binary exists locally for the current OS.
     pub fn exists(&self, kernel_name: &str) -> bool {
-        let path = self.resolve_path(kernel_name);
-        path.exists()
+        self.resolve_path(kernel_name).is_file()
     }
 
-    /// Resolves path based on current compilation target (NATIVE).
     pub fn resolve_path(&self, kernel_name: &str) -> PathBuf {
-        let os = if cfg!(target_os = "windows") { "Windows" }
-            else if cfg!(target_os = "linux") { "Linux" }
-            else if cfg!(target_os = "android") { "Android" }
-            else if cfg!(target_os = "macos") { "macOS" }
-            else if cfg!(target_os = "ios") { "iOS" }
-            else { "Unknown" };
+        let os = if cfg!(target_os = "windows") {
+            "Windows"
+        } else if cfg!(target_os = "linux") {
+            "Linux"
+        } else if cfg!(target_os = "android") {
+            "Android"
+        } else if cfg!(target_os = "macos") {
+            "macOS"
+        } else if cfg!(target_os = "ios") {
+            "iOS"
+        } else {
+            "Unknown"
+        };
         self.resolve_path_for_os(kernel_name, os)
     }
 
-    /// Resolves the absolute path for a kernel binary for a SPECIFIC OS.
-    /// Priority: [cluaiz_root]/interface-engines/ → fallback to base_dir/target/release/
     pub fn resolve_path_for_os(&self, kernel_name: &str, os: &str) -> PathBuf {
-        let ext = match os {
+        let extension = match os {
             "Windows" => "dll",
             "Linux" | "Android" => "so",
             "macOS" | "iOS" => "dylib",
             _ => "bin",
         };
 
-        // We try multiple potential naming conventions and subdirectories
-        let mut candidates = Vec::new();
-        
-        // 1. Unified cluaiz Naming Format (e.g. cluaiz-llama.dll, libcluaiz_llama.so)
-        candidates.push(format!("cluaiz-{}.{}", kernel_name, ext));
-        candidates.push(format!("cluaiz_{}.{}", kernel_name, ext));
-        candidates.push(format!("libcluaiz_{}.{}", kernel_name, ext));
-        candidates.push(format!("libcluaiz-{}.{}", kernel_name, ext));
-        
-        // 2. Legacy Archer Naming Format (e.g. archer_llama.dll, libarcher_llama.so)
-        candidates.push(format!("archer_{}.{}", kernel_name, ext));
-        candidates.push(format!("archer-{}.{}", kernel_name, ext));
-        candidates.push(format!("libarcher_{}.{}", kernel_name, ext));
-        
-        // 3. DEVELOPMENT FALLBACK: Check local target/debug/ if we are running from source.
-        // We prioritize this over the global installation so developers don't accidentally load stale DLLs.
-        let mut dev_path = if let Some(root) = read_cluaiz_root() {
-            // We shouldn't use cluaiz_root for dev_path because that's the global .cluaiz folder.
-            // We should use the current working directory where Cargo is building.
-            std::env::current_dir().unwrap_or(self.base_dir.clone())
+        let candidates = Self::candidate_names(kernel_name, extension);
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| self.base_dir.clone());
+
+        for profile in ["release", "debug"] {
+            let profile_dir = current_dir.join("target").join(profile);
+            for file_name in &candidates {
+                for path in [profile_dir.join(file_name), profile_dir.join("deps").join(file_name)] {
+                    if path.is_file() {
+                        tracing::info!(
+                            "[1BitShit KernelLoader] Development kernel resolved: {}",
+                            path.display()
+                        );
+                        return path;
+                    }
+                }
+            }
+        }
+
+        let environment = cluaiz_shared::environment::EnvironmentManager::current();
+        let engine_dir = environment.engine_dir();
+        for file_name in &candidates {
+            for path in [engine_dir.join(file_name), engine_dir.join("drivers").join(file_name)] {
+                if path.is_file() {
+                    tracing::info!(
+                        "[1BitShit KernelLoader] Installed kernel resolved: {}",
+                        path.display()
+                    );
+                    return path;
+                }
+            }
+        }
+
+        let fallback = engine_dir.join(Self::primary_name(kernel_name, extension));
+        tracing::warn!(
+            "[1BitShit KernelLoader] Kernel '{}' was not found. Expected {}",
+            kernel_name,
+            fallback.display()
+        );
+        fallback
+    }
+
+    fn primary_name(kernel_name: &str, extension: &str) -> String {
+        if cfg!(windows) {
+            format!("bitshit-{kernel_name}.{extension}")
         } else {
-            std::env::current_dir().unwrap_or(self.base_dir.clone())
-        };
-        dev_path.push("target");
-
-        // Always prefer release profile for maximum performance, even in debug builds
-        let profiles = ["release", "debug"];
-
-        for profile in &profiles {
-            let profile_path = dev_path.join(profile);
-            for file_name in &candidates {
-                let path = profile_path.join(file_name);
-                if path.exists() {
-                    tracing::info!("🎯 [KernelLoader] cluaiz dev path resolved ({}): {:?}", profile, path);
-                    return path;
-                }
-            }
+            format!("libbitshit_{kernel_name}.{extension}")
         }
+    }
 
-        // 4. System Truth: Read cluaiz_root (Global Installation)
-        if let Some(_) = read_cluaiz_root() {
-            let env = cluaiz_shared::environment::EnvironmentManager::current();
-            let base_link = env.engine_dir();
-            
-            for file_name in &candidates {
-                // Check flat engine directory
-                let path = base_link.join(file_name);
-                if path.exists() {
-                    tracing::info!("🎯 [KernelLoader] cluaiz path resolved: {:?}", path);
-                    return path;
-                }
-            }
-        }
-        
-        tracing::warn!("⚠️ [KernelLoader] cluaiz path not found for {}. Checked dev paths.", kernel_name);
-        dev_path.join("release").join(format!("cluaiz_{}.{}", kernel_name, ext))
+    fn candidate_names(kernel_name: &str, extension: &str) -> Vec<String> {
+        vec![
+            format!("bitshit-{kernel_name}.{extension}"),
+            format!("bitshit_{kernel_name}.{extension}"),
+            format!("libbitshit_{kernel_name}.{extension}"),
+            format!("libbitshit-{kernel_name}.{extension}"),
+            // Compatibility readers. These names are never created by the new runtime.
+            format!("cluaiz-{kernel_name}.{extension}"),
+            format!("cluaiz_{kernel_name}.{extension}"),
+            format!("libcluaiz_{kernel_name}.{extension}"),
+            format!("libcluaiz-{kernel_name}.{extension}"),
+            format!("archer_{kernel_name}.{extension}"),
+            format!("archer-{kernel_name}.{extension}"),
+            format!("libarcher_{kernel_name}.{extension}"),
+        ]
     }
 }
-

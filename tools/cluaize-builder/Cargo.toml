@@ -1,10 +1,10 @@
 [package]
-name = "cluaiz-builder"
-version = "0.1.0"
-edition = "2021"
+name = "bitshit-builder"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 publish = false
 
-
 [dependencies]
-cluaiz-shared = { path = "../../Inference-engine/engines/cluaiz-shared" }
+cluaiz-shared = { package = "bitshit-shared", path = "../../Inference-engine/engines/cluaiz-shared" }
 dirs = "6.0.0"

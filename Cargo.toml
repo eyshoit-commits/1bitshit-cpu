@@ -4,6 +4,8 @@ members = [
   "Inference-engine/engines",
   "Inference-engine/engines/cluaiz-shared",
   "Inference-engine/engines/system-booster",
+  "interface-engines/llama",
+  "interface-engines/onnx",
   "cmd",
   "test/dummy_plugin",
   "inference-cel",
@@ -14,9 +16,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-authors = ["BKG"]
+authors = ["BKG / 1BitShit CPU"]
 
 [profile.dev]
 debug = false

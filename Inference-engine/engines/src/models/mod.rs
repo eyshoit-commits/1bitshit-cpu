@@ -1,10 +1,11 @@
 //! Public model subsystem for the 1BitShit CPU engine.
 //!
-//! Keep this module entry point committed. `engines/src/lib.rs` exposes it via
-//! `pub mod models;`, so a missing file makes the entire workspace fail before
-//! any runtime or model-download code can be tested.
+//! Llama/GGUF, BitNet and ONNX models share one visible model store. The
+//! downloader, cache lookup, purge and runtime loader therefore resolve the
+//! same canonical directory.
 
 pub mod entities;
+#[path = "fetch_v2.rs"]
 pub mod fetch;
 pub mod manager;
 pub mod registry;

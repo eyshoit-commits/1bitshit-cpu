@@ -1,185 +1,239 @@
-use std::path::PathBuf;
-use anyhow::{Result, anyhow};
-use reqwest;
 use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::{anyhow, Result};
 use cluaiz_shared::HardwareGovernor;
-use colored::Colorize;
 
 pub struct DriverProvisioner;
 
 impl DriverProvisioner {
-    /// 🛠️ Construct Registry Key: Dynamically maps local hardware details to the registry's flat keys.
     fn get_registry_key(driver_type: &str) -> String {
-        let platform = if cfg!(windows) { 
-            "win-x64" 
-        } else if cfg!(target_os = "macos") { 
-            "mac-arm64" 
+        let platform = if cfg!(windows) {
+            "win-x64"
+        } else if cfg!(target_os = "macos") {
+            "mac-arm64"
         } else if cfg!(target_os = "android") {
             "android-arm64"
-        } else { 
-            "linux-x64" 
+        } else {
+            "linux-x64"
         };
 
         match driver_type {
-            "cuda" => format!("{}-cuda-12", platform),
-            "rocm" | "hip" => format!("{}-{}", platform, driver_type),
-            "vulkan" => format!("{}-vulkan", platform),
-            "openvino" => format!("{}-openvino", platform),
-            "cann" => format!("{}-cann", platform),
-            "qnn" => format!("{}-qnn", platform),
-            "metal" => format!("{}-metal", platform),
-            _ => format!("{}-{}", platform, driver_type),
+            "cuda" => format!("{platform}-cuda-12"),
+            "rocm" | "hip" => format!("{platform}-{driver_type}"),
+            "vulkan" => format!("{platform}-vulkan"),
+            "openvino" => format!("{platform}-openvino"),
+            "cann" => format!("{platform}-cann"),
+            "qnn" => format!("{platform}-qnn"),
+            "metal" => format!("{platform}-metal"),
+            _ => format!("{platform}-{driver_type}"),
         }
     }
 
-    /// 🛠️ Provision Kernel Binary: Auto-detects and deploys specialized engine kernels (llama-cuda, etc.)
-    pub async fn provision_kernel(kernel_type: &str, backend: &str, manifest_url: &str) -> Result<PathBuf> {
+    pub async fn provision_kernel(
+        kernel_type: &str,
+        backend: &str,
+        manifest_url: &str,
+    ) -> Result<PathBuf> {
         let kernel_dir = HardwareGovernor::resolve_interface_path();
-        
-        if !kernel_dir.exists() {
-            fs::create_dir_all(&kernel_dir)?;
-        }
+        fs::create_dir_all(&kernel_dir)?;
 
         let registry_key = Self::get_registry_key(backend);
-        let binary_id = format!("{}-{}", kernel_type, backend);
-        let marker = kernel_dir.join(format!("{}.ready", kernel_type));
+        let marker = kernel_dir.join(format!("bitshit-{kernel_type}.ready"));
+        let extension = dynamic_library_extension();
+        let destination = kernel_dir.join(format!("bitshit-{kernel_type}.{extension}"));
 
-        let ext = if cfg!(windows) { "dll" } else if cfg!(target_os = "macos") { "dylib" } else { "so" };
-        let dest_filename = format!("cluaiz-{}.{}", kernel_type, ext);
-        let dest_path = kernel_dir.join(&dest_filename);
-
-        // 🛡️ SOVEREIGN GUARD: If a locally-built CUDA kernel exists (>30MB), NEVER overwrite it
-        // with a downloaded CPU-only kernel from GitHub (typically 8-20MB).
-        // A large local DLL means it was built with --features cuda and has CUDA kernels baked in.
-        if dest_path.exists() {
-            let size_mb = dest_path.metadata().map(|m| m.len()).unwrap_or(0) / (1024 * 1024);
+        // Preserve locally compiled accelerated kernels. A large binary generally
+        // contains the CUDA/ROCm backend and must not be replaced by a CPU artifact.
+        if destination.is_file() {
+            let size_mb = destination.metadata().map(|metadata| metadata.len()).unwrap_or(0)
+                / (1024 * 1024);
             if size_mb > 30 {
-                tracing::info!("🛡️ [Provisioner] CUDA-linked kernel detected ({} MB). Skipping GitHub overwrite.", size_mb);
-                cluaiz_shared::dev_info!("  {} [Provisioner] Sovereign CUDA kernel preserved ({} MB). Skipping registry sync.", "🛡️".green(), size_mb);
-                return Ok(dest_path);
+                tracing::info!(
+                    "[1BitShit Provisioner] Preserving local accelerated kernel ({} MB)",
+                    size_mb
+                );
+                return Ok(destination);
             }
         }
 
         let client = reqwest::Client::builder()
-            .user_agent("cluaiz-Neural-Engine/0.1.0")
+            .user_agent(format!("1bitshit-cpu/{}", env!("CARGO_PKG_VERSION")))
             .build()?;
-
-        let response = client.get(manifest_url).send().await
-            .map_err(|e| anyhow!("Registry Sync Failed: {}", e))?;
-
-        let text = response.text().await?;
-        let text = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
-        let manifest: serde_json::Value = serde_json::from_str(&text)?;
-        
+        let manifest = fetch_manifest(&client, manifest_url).await?;
         let manifest_version = manifest["version"].as_str().unwrap_or("unknown");
 
-        if marker.exists() {
-            let local_version = fs::read_to_string(&marker).unwrap_or_default();
-            if local_version == manifest_version {
-                let p = kernel_dir.join(format!("cluaiz-{}.{}", kernel_type, ext));
-                if p.exists() { return Ok(p); }
-            }
+        if marker.is_file()
+            && destination.is_file()
+            && fs::read_to_string(&marker).unwrap_or_default().trim() == manifest_version
+        {
+            return Ok(destination);
         }
-
-        cluaiz_shared::dev_info!("  {} [PROVISIONER] Missing Neural Kernel '{}'. Provisioning from Registry...", "🧬".cyan(), kernel_type);
 
         let download_url = manifest["kernel"][kernel_type][&registry_key]
             .as_str()
-            .ok_or_else(|| anyhow!("Kernel '{}' for platform '{}' not found.", kernel_type, registry_key))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "Kernel '{}' for registry key '{}' was not found",
+                    kernel_type,
+                    registry_key
+                )
+            })?;
 
-        let bin_response = client.get(download_url).send().await?;
-        let bytes = bin_response.bytes().await?;
-        fs::write(&dest_path, bytes)?;
-
+        download_atomic(&client, download_url, &destination).await?;
         fs::write(marker, manifest_version)?;
-        cluaiz_shared::dev_info!("  {} [PROVISIONER] Kernel '{}' successfully deployed.", "✅".green(), kernel_type);
-
-        Ok(dest_path)
+        tracing::info!(
+            "[1BitShit Provisioner] Kernel '{}' installed at {}",
+            kernel_type,
+            destination.display()
+        );
+        Ok(destination)
     }
 
-
-    /// 🛠️ Provision Hardware Driver: Auto-detects, downloads, and deploys missing or stale silicon drivers.
     pub async fn provision_for_hardware(driver_type: &str, manifest_url: &str) -> Result<()> {
+        if manifest_url.trim().is_empty() {
+            return Ok(());
+        }
+
         let driver_dir = HardwareGovernor::resolve_interface_path().join("drivers");
-        
-        if !driver_dir.exists() {
-            fs::create_dir_all(&driver_dir)?;
-        }
+        fs::create_dir_all(&driver_dir)?;
 
-        let client = reqwest::Client::builder().user_agent("cluaiz-Neural-Engine/0.1.0").build()?;
-        let response = client.get(manifest_url).send().await?;
-        
-        let text = response.text().await?;
-        let text = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
-        let manifest: serde_json::Value = serde_json::from_str(&text)?;
-        
+        let client = reqwest::Client::builder()
+            .user_agent(format!("1bitshit-cpu/{}", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        let manifest = fetch_manifest(&client, manifest_url).await?;
         let manifest_version = manifest["version"].as_str().unwrap_or("unknown");
+        let marker = driver_dir.join(format!("bitshit-{driver_type}.ready"));
 
-        let marker = driver_dir.join(format!("{}.ready", driver_type));
-        if marker.exists() {
-            let local_version = fs::read_to_string(&marker).unwrap_or_default();
-            if local_version == manifest_version {
-                return Ok(());
-            }
+        if marker.is_file()
+            && fs::read_to_string(&marker).unwrap_or_default().trim() == manifest_version
+        {
+            return Ok(());
         }
 
-        cluaiz_shared::dev_info!("  {} [PROVISIONER] Provisioning Silicon Driver: {}...", "⚙️".yellow(), driver_type);
         let registry_key = Self::get_registry_key(driver_type);
-        let download_url = manifest["drivers"][&registry_key].as_str()
-            .ok_or_else(|| anyhow!("Driver key '{}' not found.", registry_key))?;
+        let download_url = manifest["drivers"][&registry_key]
+            .as_str()
+            .ok_or_else(|| anyhow!("Driver key '{}' was not found", registry_key))?;
+        let file_name = download_url
+            .split('/')
+            .next_back()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("driver.bin");
+        let destination = driver_dir.join(file_name);
 
-        let dest_filename = download_url.split('/').last().unwrap_or("driver.bin");
-        let dest_path = driver_dir.join(dest_filename);
-
-        let bin_response = client.get(download_url).send().await?;
-        let bytes = bin_response.bytes().await?;
-        
-        if dest_filename.ends_with(".zip") {
-            let cursor = std::io::Cursor::new(bytes);
-            let mut archive = zip::ZipArchive::new(cursor).map_err(|e| anyhow::anyhow!("Zip extraction failed: {}", e))?;
-            for i in 0..archive.len() {
-                let mut file = archive.by_index(i).map_err(|e| anyhow::anyhow!("Failed to read zip entry: {}", e))?;
-                let outpath = match file.enclosed_name() {
-                    Some(path) => driver_dir.join(path),
-                    None => continue,
-                };
-                if file.name().ends_with('/') {
-                    fs::create_dir_all(&outpath)?;
-                } else {
-                    if let Some(p) = outpath.parent() {
-                        if !p.exists() {
-                            fs::create_dir_all(p)?;
-                        }
-                    }
-                    let mut outfile = fs::File::create(&outpath)?;
-                    std::io::copy(&mut file, &mut outfile)?;
-                }
+        if file_name.ends_with(".zip") {
+            let response = client.get(download_url).send().await?;
+            if !response.status().is_success() {
+                return Err(anyhow!(
+                    "Driver download returned HTTP {}",
+                    response.status()
+                ));
             }
+            let bytes = response.bytes().await?;
+            extract_zip(&bytes, &driver_dir)?;
         } else {
-            fs::write(&dest_path, bytes)?;
+            download_atomic(&client, download_url, &destination).await?;
         }
 
         fs::write(marker, manifest_version)?;
+        tracing::info!(
+            "[1BitShit Provisioner] Driver '{}' installed",
+            driver_type
+        );
         Ok(())
     }
 
     pub fn discover_system_paths() -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        paths.push(Self::get_driver_path());
-
+        let mut paths = vec![Self::get_driver_path()];
         #[cfg(target_os = "windows")]
-        {
-            if let Ok(cuda_path) = std::env::var("CUDA_PATH") {
-                let bin_path = PathBuf::from(cuda_path).join("bin");
-                if bin_path.exists() {
-                    paths.push(bin_path);
-                }
+        if let Ok(cuda_path) = std::env::var("CUDA_PATH") {
+            let binary_path = PathBuf::from(cuda_path).join("bin");
+            if binary_path.exists() {
+                paths.push(binary_path);
             }
         }
         paths
     }
 
     pub fn get_driver_path() -> PathBuf {
-        HardwareGovernor::resolve_hub_path().join("interface-engines").join("drivers")
+        HardwareGovernor::resolve_interface_path().join("drivers")
+    }
+}
+
+async fn fetch_manifest(
+    client: &reqwest::Client,
+    manifest_url: &str,
+) -> Result<serde_json::Value> {
+    let response = client.get(manifest_url).send().await?;
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "Driver registry returned HTTP {}",
+            response.status()
+        ));
+    }
+    let text = response.text().await?;
+    let normalized = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(serde_json::from_str(&normalized)?)
+}
+
+async fn download_atomic(
+    client: &reqwest::Client,
+    url: &str,
+    destination: &Path,
+) -> Result<()> {
+    let response = client.get(url).send().await?;
+    if !response.status().is_success() {
+        return Err(anyhow!("Download returned HTTP {}", response.status()));
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let partial = destination.with_extension(format!(
+        "{}.part",
+        destination
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("download")
+    ));
+    fs::write(&partial, response.bytes().await?)?;
+    fs::rename(partial, destination)?;
+    Ok(())
+}
+
+fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|error| anyhow!("ZIP extraction failed: {error}"))?;
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index)?;
+        let Some(relative_path) = file.enclosed_name() else {
+            continue;
+        };
+        let output = destination.join(relative_path);
+        if file.is_dir() {
+            fs::create_dir_all(&output)?;
+        } else {
+            if let Some(parent) = output.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut output_file = fs::File::create(output)?;
+            std::io::copy(&mut file, &mut output_file)?;
+        }
+    }
+    Ok(())
+}
+
+fn dynamic_library_extension() -> &'static str {
+    if cfg!(windows) {
+        "dll"
+    } else if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
     }
 }

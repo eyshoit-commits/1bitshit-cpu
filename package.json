@@ -1,52 +1,49 @@
 {
   "name": "1bitshit-cpu",
-  "version": "0.1.3",
-  "id": "https://github.com/eyshoit-commits/1bitshit-cpu/raw/main/package.json",
-  "last_updated": "2026-05-20T10:00:00Z",
+  "display_name": "1BitShit CPU",
+  "version": "0.2.0",
+  "id": "https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/package.json",
+  "last_updated": "2026-07-11T00:00:00Z",
   "author": "BKG",
-  "cdn": "https://cdn.jsdelivr.net",
+  "repository": "https://github.com/eyshoit-commits/1bitshit-cpu",
   "components": {
     "cli": {
-      "version": "dev-release",
-      "min_supported": null,
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/cli-dev-release/bitshit-cli.json"
+      "version": "0.2.0",
+      "min_supported": "0.2.0",
+      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/v0.2.0/bitshit-cli.json"
     },
     "engine": {
-      "version": "dev-release",
-      "min_supported": null,
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/engine-dev-release/bitshit-engine.json"
+      "version": "0.2.0",
+      "min_supported": "0.2.0",
+      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/v0.2.0/bitshit-engine.json"
     },
     "kernel": {
-      "version": "dev-release",
-      "min_supported": null,
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/kernel-dev-release/bitshit-kernel.json"
+      "version": "0.2.0",
+      "min_supported": "0.2.0",
+      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/v0.2.0/bitshit-kernel.json"
     },
     "drivers": {
-      "version": "dev-release",
-      "min_supported": null,
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/driver-dev-release/bitshit-driver.json"
+      "version": "0.2.0",
+      "min_supported": "0.2.0",
+      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/releases/download/v0.2.0/bitshit-driver.json"
     }
   },
   "web": {
-    "ps1": {
-      "version": "main",
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/blob/main/install.ps1"
-    },
-    "sh": {
-      "version": "main",
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/blob/main/install.sh"
-    },
-    "models": {
-      "version": "main",
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/blob/main/models/library/registry.json"
-    },
-    "docs": {
-      "version": "main",
-      "manifest_url": "https://github.com/eyshoit-commits/1bitshit-cpu/blob/main/docs/registry.json"
-    },
-    "hub": {
-      "version": "main",
-      "manifest_url": "https://raw.githubusercontent.com/cluaiz/cluaiz-hub/main/registry.json"
-    }
-  }
+    "powershell_installer": "https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/install.ps1",
+    "shell_installer": "https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/install.sh",
+    "models": "https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/model-registry",
+    "docs": "https://github.com/eyshoit-commits/1bitshit-cpu/tree/main/docs",
+    "hub": "https://raw.githubusercontent.com/eyshoit-commits/1bitshit-cpu/main/model-registry"
+  },
+  "capabilities": [
+    "llama",
+    "gguf",
+    "bitnet",
+    "onnx",
+    "chat-api",
+    "native-ffi",
+    "model-hub",
+    "skills",
+    "hardware-booster"
+  ]
 }

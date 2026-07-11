@@ -9,11 +9,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 neural-core = { path = "../neural_core" }
-llama = { path = "../llama" }
-
+llama = { package = "bitshit-llama", path = "../llama" }
 system-booster = { path = "../../Inference-engine/engines/system-booster" }
 libloading = "0.8"
-cluaiz-shared = { path = "../../Inference-engine/engines/cluaiz-shared" }
+cluaiz-shared = { package = "bitshit-shared", path = "../../Inference-engine/engines/cluaiz-shared" }
 anyhow = "1.0"
 async-trait = "0.1"
 tracing = "0.1"
