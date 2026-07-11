@@ -28,42 +28,69 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake pkg-config libssl-dev libclang-dev
 
-      - name: Show workspace members
-        run: cargo metadata --no-deps --format-version 1
-
-      - name: Check shared runtime
-        run: cargo check -p bitshit-shared
-
-      - name: Check ONNX engine
-        run: cargo check -p bitshit-onnx
-
-      - name: Check Llama engine
-        run: cargo check -p bitshit-llama
-
-      - name: Check engines
-        run: cargo check -p engines --all-features
-
-      - name: Check API
-        run: cargo check -p bitshit-api
-
-      - name: Check command runtime
-        run: cargo check -p cmd --bin bitshit
-
-      - name: Build release command
-        run: cargo build --release -p cmd --bin bitshit
-
-      - name: Check complete workspace
-        run: cargo check --workspace --all-targets --all-features
-
-      - name: Verify feature trees remain present
+      - name: Run complete build audit
+        shell: bash
         run: |
-          test -d interface-engines/llama
-          test -d interface-engines/onnx
-          test -f Inference-engine/engines/src/models/entities.rs
-          test -f Inference-engine/engines/src/models/fetch/mod.rs
-          test -f Inference-engine/engines/src/models/manager/mod.rs
-          test -f Inference-engine/engines/src/models/registry/mod.rs
+          set +e
+          : > rebrand-build.log
+          status=0
 
-      - name: Audit remaining active legacy branding
+          run_check() {
+            echo "" | tee -a rebrand-build.log
+            echo "===== $1 =====" | tee -a rebrand-build.log
+            shift
+            "$@" 2>&1 | tee -a rebrand-build.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then
+              status="$result"
+            fi
+          }
+
+          run_check "CARGO METADATA" cargo metadata --no-deps --format-version 1
+          run_check "BITSHIT SHARED" cargo check -p bitshit-shared
+          run_check "BITSHIT ONNX" cargo check -p bitshit-onnx
+          run_check "BITSHIT LLAMA" cargo check -p bitshit-llama
+          run_check "ENGINES" cargo check -p engines --all-features
+          run_check "BITSHIT API" cargo check -p bitshit-api
+          run_check "BITSHIT COMMAND" cargo check -p cmd --bin bitshit
+          run_check "RELEASE COMMAND" cargo build --release -p cmd --bin bitshit
+          run_check "FULL WORKSPACE" cargo check --workspace --all-targets --all-features
+
+          printf '%s\n' "$status" > rebrand-build.status
+          exit 0
+
+      - name: Audit preserved feature trees
+        shell: bash
         run: |
-          git grep -n -I -E 'Ghost Execution|\[cluaiz\]|cluaiz Main Menu|Starting cluaiz|\.cluaiz' -- ':!docs/**' ':!**/THIRD_PARTY_NOTICES.txt' || true
+          {
+            echo ""
+            echo "===== FEATURE TREE AUDIT ====="
+            test -d interface-engines/llama && echo "Llama tree: present" || echo "Llama tree: MISSING"
+            test -d interface-engines/onnx && echo "ONNX tree: present" || echo "ONNX tree: MISSING"
+            test -f Inference-engine/engines/src/models/entities.rs && echo "Chat entities: present" || echo "Chat entities: MISSING"
+            test -f Inference-engine/engines/src/models/fetch/mod.rs && echo "Downloader: present" || echo "Downloader: MISSING"
+            test -f Inference-engine/engines/src/models/manager/mod.rs && echo "Model manager: present" || echo "Model manager: MISSING"
+            test -f Inference-engine/engines/src/models/registry/mod.rs && echo "Registry: present" || echo "Registry: MISSING"
+            echo ""
+            echo "===== ACTIVE LEGACY NAME AUDIT ====="
+            git grep -n -I -E 'Ghost Execution|\[cluaiz\]|cluaiz Main Menu|Starting cluaiz|\.cluaiz' -- ':!docs/**' ':!**/THIRD_PARTY_NOTICES.txt' || true
+          } | tee -a rebrand-build.log
+
+      - name: Upload complete build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-rebrand-build-report
+          path: |
+            rebrand-build.log
+            rebrand-build.status
+          if-no-files-found: error
+
+      - name: Fail when any build check failed
+        shell: bash
+        run: |
+          status="$(cat rebrand-build.status)"
+          if [ "$status" -ne 0 ]; then
+            echo "One or more rebrand build checks failed. See full-rebrand-build-report."
+            exit "$status"
+          fi
