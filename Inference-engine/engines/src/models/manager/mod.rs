@@ -7,7 +7,7 @@ use crate::models::registry::ModelManifest;
 
 pub mod auditor;
 pub mod client;
-#[path = "hf_hub_v2.rs"]
+#[path = "hf_hub_v3.rs"]
 pub mod hf_hub;
 pub mod installer;
 
